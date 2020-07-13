@@ -4,6 +4,7 @@ import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import io.metersphere.base.domain.FileMetadata;
 import io.metersphere.base.domain.LoadTest;
+import io.metersphere.base.domain.Schedule;
 import io.metersphere.commons.constants.RoleConstants;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
@@ -20,6 +21,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
 import javax.annotation.Resource;
 import java.util.List;
 
@@ -51,6 +53,12 @@ public class PerformanceTestController {
     @GetMapping("/list/{projectId}")
     public List<LoadTest> list(@PathVariable String projectId) {
         return performanceTestService.getLoadTestByProjectId(projectId);
+    }
+
+
+    @GetMapping("/state/get/{testId}")
+    public LoadTest listByTestId(@PathVariable String testId) {
+        return performanceTestService.getLoadTestBytestId(testId);
     }
 
     @PostMapping(value = "/save", consumes = {"multipart/form-data"})
@@ -94,6 +102,11 @@ public class PerformanceTestController {
         return performanceTestService.run(request);
     }
 
+    @GetMapping("stop/{reportId}")
+    public void stopTest(@PathVariable String reportId) {
+        performanceTestService.stopTest(reportId);
+    }
+
     @GetMapping("/file/metadata/{testId}")
     public List<FileMetadata> getFileMetadata(@PathVariable String testId) {
         return fileService.getFileMetadataByTestId(testId);
@@ -117,4 +130,15 @@ public class PerformanceTestController {
     public void copy(@RequestBody SaveTestPlanRequest request) {
         performanceTestService.copy(request);
     }
+
+    @PostMapping(value = "/schedule/create")
+    public void createSchedule(@RequestBody Schedule request) {
+        performanceTestService.createSchedule(request);
+    }
+
+    @PostMapping(value = "/schedule/update")
+    public void updateSchedule(@RequestBody Schedule request) {
+        performanceTestService.updateSchedule(request);
+    }
+
 }

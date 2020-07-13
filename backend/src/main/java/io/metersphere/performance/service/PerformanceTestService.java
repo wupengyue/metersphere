@@ -5,8 +5,7 @@ import io.metersphere.base.mapper.*;
 import io.metersphere.base.mapper.ext.ExtLoadTestMapper;
 import io.metersphere.base.mapper.ext.ExtLoadTestReportDetailMapper;
 import io.metersphere.base.mapper.ext.ExtLoadTestReportMapper;
-import io.metersphere.commons.constants.APITestStatus;
-import io.metersphere.commons.constants.PerformanceTestStatus;
+import io.metersphere.commons.constants.*;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.commons.utils.ServiceUtils;
@@ -16,9 +15,11 @@ import io.metersphere.controller.request.OrderRequest;
 import io.metersphere.dto.DashboardTestDTO;
 import io.metersphere.dto.LoadTestDTO;
 import io.metersphere.i18n.Translator;
+import io.metersphere.job.sechedule.PerformanceTestJob;
 import io.metersphere.performance.engine.Engine;
 import io.metersphere.performance.engine.EngineFactory;
 import io.metersphere.service.FileService;
+import io.metersphere.service.ScheduleService;
 import io.metersphere.service.TestResourceService;
 import io.metersphere.track.request.testplan.*;
 import org.apache.commons.collections4.ListUtils;
@@ -68,6 +69,10 @@ public class PerformanceTestService {
     private ReportService reportService;
     @Resource
     private KafkaProperties kafkaProperties;
+    @Resource
+    private ScheduleService scheduleService;
+    @Resource
+    private TestCaseMapper testCaseMapper;
 
     public List<LoadTestDTO> list(QueryTestPlanRequest request) {
         request.setOrders(ServiceUtils.getDefaultOrder(request.getOrders()));
@@ -76,6 +81,20 @@ public class PerformanceTestService {
 
     public void delete(DeleteTestPlanRequest request) {
         String testId = request.getId();
+
+        // 是否关联测试用例
+        TestCaseExample testCaseExample = new TestCaseExample();
+        testCaseExample.createCriteria().andTestIdEqualTo(testId);
+        List<TestCase> testCases = testCaseMapper.selectByExample(testCaseExample);
+        if (testCases.size() > 0) {
+            String caseName = "";
+            for (int i = 0; i < testCases.size(); i++) {
+                caseName = caseName + testCases.get(i).getName() + ",";
+            }
+            caseName = caseName.substring(0, caseName.length() - 1);
+            MSException.throwException(Translator.get("related_case_del_fail_prefix") + caseName + Translator.get("related_case_del_fail_suffix"));
+        }
+
         LoadTestReportExample loadTestReportExample = new LoadTestReportExample();
         loadTestReportExample.createCriteria().andTestIdEqualTo(testId);
         List<LoadTestReport> loadTestReports = loadTestReportMapper.selectByExample(loadTestReportExample);
@@ -83,16 +102,8 @@ public class PerformanceTestService {
         if (!loadTestReports.isEmpty()) {
             List<String> reportIdList = loadTestReports.stream().map(LoadTestReport::getId).collect(Collectors.toList());
 
-            // delete load_test_report_result
-            LoadTestReportResultExample loadTestReportResultExample = new LoadTestReportResultExample();
-            loadTestReportResultExample.createCriteria().andReportIdIn(reportIdList);
-            loadTestReportResultMapper.deleteByExample(loadTestReportResultExample);
-
-            // delete load_test_report, delete load_test_report_detail
+            // delete load_test_report
             reportIdList.forEach(reportId -> {
-                LoadTestReportDetailExample example = new LoadTestReportDetailExample();
-                example.createCriteria().andReportIdEqualTo(reportId);
-                loadTestReportDetailMapper.deleteByExample(example);
                 reportService.deleteReport(reportId);
             });
         }
@@ -196,6 +207,9 @@ public class PerformanceTestService {
     @Transactional(noRollbackFor = MSException.class)//  保存失败的信息
     public String run(RunTestPlanRequest request) {
         final LoadTestWithBLOBs loadTest = loadTestMapper.selectByPrimaryKey(request.getId());
+        if (request.getUserId() != null) {
+            loadTest.setUserId(request.getUserId());
+        }
         if (loadTest == null) {
             MSException.throwException(Translator.get("run_load_test_not_found") + request.getId());
         }
@@ -213,7 +227,7 @@ public class PerformanceTestService {
             MSException.throwException(String.format("Test cannot be run，test ID：%s", request.getId()));
         }
 
-        startEngine(loadTest, engine);
+        startEngine(loadTest, engine, request.getTriggerMode());
 
         // todo：通过调用stop方法能够停止正在运行的engine，但是如果部署了多个backend实例，页面发送的停止请求如何定位到具体的engine
 
@@ -245,14 +259,19 @@ public class PerformanceTestService {
         }
     }
 
-    private void startEngine(LoadTestWithBLOBs loadTest, Engine engine) {
+    private void startEngine(LoadTestWithBLOBs loadTest, Engine engine, String triggerMode) {
         LoadTestReport testReport = new LoadTestReport();
         testReport.setId(engine.getReportId());
         testReport.setCreateTime(engine.getStartTime());
         testReport.setUpdateTime(engine.getStartTime());
         testReport.setTestId(loadTest.getId());
         testReport.setName(loadTest.getName());
-        testReport.setUserId(SessionUtils.getUser().getId());
+        testReport.setTriggerMode(triggerMode);
+        if (SessionUtils.getUser() == null) {
+            testReport.setUserId(loadTest.getUserId());
+        } else {
+            testReport.setUserId(SessionUtils.getUser().getId());
+        }
         // 启动测试
 
         try {
@@ -271,6 +290,13 @@ public class PerformanceTestService {
             loadTestReportDetailMapper.insertSelective(reportDetail);
             // append \n
             extLoadTestReportDetailMapper.appendLine(testReport.getId(), "\n");
+            // 保存一个 reportStatus
+            LoadTestReportResult reportResult = new LoadTestReportResult();
+            reportResult.setId(UUID.randomUUID().toString());
+            reportResult.setReportId(testReport.getId());
+            reportResult.setReportKey(ReportKeys.ResultStatus.name());
+            reportResult.setReportValue("Ready"); // 初始化一个 result_status, 这个值用在data-streaming中
+            loadTestReportResultMapper.insertSelective(reportResult);
         } catch (MSException e) {
             LogUtil.error(e);
             loadTest.setStatus(PerformanceTestStatus.Error.name());
@@ -296,7 +322,10 @@ public class PerformanceTestService {
         request.setId(testId);
         List<LoadTestDTO> testDTOS = extLoadTestMapper.list(request);
         if (!CollectionUtils.isEmpty(testDTOS)) {
-            return testDTOS.get(0);
+            LoadTestDTO loadTestDTO = testDTOS.get(0);
+            Schedule schedule = scheduleService.getScheduleByResource(loadTestDTO.getId(), ScheduleGroup.PERFORMANCE_TEST.name());
+            loadTestDTO.setSchedule(schedule);
+            return loadTestDTO;
         }
         return null;
     }
@@ -327,6 +356,10 @@ public class PerformanceTestService {
         return extLoadTestMapper.getLoadTestByProjectId(projectId);
     }
 
+    public LoadTest getLoadTestBytestId(String testId) {
+        return loadTestMapper.selectByPrimaryKey(testId);
+    }
+
     public void copy(SaveTestPlanRequest request) {
         // copy test
         LoadTestWithBLOBs copy = loadTestMapper.selectByPrimaryKey(request.getId());
@@ -349,5 +382,31 @@ public class PerformanceTestService {
                 loadTestFileMapper.insert(loadTestFile);
             });
         }
+    }
+
+    public void updateSchedule(Schedule request) {
+        scheduleService.editSchedule(request);
+        addOrUpdatePerformanceTestCronJob(request);
+    }
+
+    public void createSchedule(Schedule request) {
+        scheduleService.addSchedule(buildPerformanceTestSchedule(request));
+        addOrUpdatePerformanceTestCronJob(request);
+    }
+
+    private Schedule buildPerformanceTestSchedule(Schedule request) {
+        Schedule schedule = scheduleService.buildApiTestSchedule(request);
+        schedule.setJob(PerformanceTestJob.class.getName());
+        schedule.setGroup(ScheduleGroup.PERFORMANCE_TEST.name());
+        schedule.setType(ScheduleType.CRON.name());
+        return schedule;
+    }
+
+    private void addOrUpdatePerformanceTestCronJob(Schedule request) {
+        scheduleService.addOrUpdateCronJob(request, PerformanceTestJob.getJobKey(request.getResourceId()), PerformanceTestJob.getTriggerKey(request.getResourceId()), PerformanceTestJob.class);
+    }
+
+    public void stopTest(String reportId) {
+        reportService.deleteReport(reportId);
     }
 }

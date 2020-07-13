@@ -3,10 +3,7 @@ package io.metersphere.performance.service;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import io.metersphere.base.domain.*;
-import io.metersphere.base.mapper.LoadTestMapper;
-import io.metersphere.base.mapper.LoadTestReportLogMapper;
-import io.metersphere.base.mapper.LoadTestReportMapper;
-import io.metersphere.base.mapper.LoadTestReportResultMapper;
+import io.metersphere.base.mapper.*;
 import io.metersphere.base.mapper.ext.ExtLoadTestReportMapper;
 import io.metersphere.commons.constants.PerformanceTestStatus;
 import io.metersphere.commons.constants.ReportKeys;
@@ -25,10 +22,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
-
-import javax.annotation.Resource;
 
 @Service
 @Transactional(rollbackFor = Exception.class)
@@ -46,6 +42,8 @@ public class ReportService {
     private LoadTestReportLogMapper loadTestReportLogMapper;
     @Resource
     private TestResourceService testResourceService;
+    @Resource
+    private LoadTestReportDetailMapper loadTestReportDetailMapper;
 
     public List<ReportDTO> getRecentReportList(ReportRequest request) {
         List<OrderRequest> orders = new ArrayList<>();
@@ -86,6 +84,16 @@ public class ReportService {
             stopEngine(loadTest, engine);
         }
 
+        // delete load_test_report_result
+        LoadTestReportResultExample loadTestReportResultExample = new LoadTestReportResultExample();
+        loadTestReportResultExample.createCriteria().andReportIdEqualTo(reportId);
+        loadTestReportResultMapper.deleteByExample(loadTestReportResultExample);
+
+        // delete load_test_report_detail
+        LoadTestReportDetailExample example = new LoadTestReportDetailExample();
+        example.createCriteria().andReportIdEqualTo(reportId);
+        loadTestReportDetailMapper.deleteByExample(example);
+
         loadTestReportMapper.deleteByPrimaryKey(reportId);
     }
 
@@ -109,7 +117,7 @@ public class ReportService {
         return loadTestReportResults.get(0).getReportValue();
     }
 
-    public List<Statistics> getReport(String id) {
+    public List<Statistics> getReportStatistics(String id) {
         checkReportStatus(id);
         String reportValue = getContent(id, ReportKeys.RequestStatistics);
         return JSON.parseArray(reportValue, Statistics.class);
@@ -154,11 +162,7 @@ public class ReportService {
     public void checkReportStatus(String reportId) {
         LoadTestReport loadTestReport = loadTestReportMapper.selectByPrimaryKey(reportId);
         String reportStatus = loadTestReport.getStatus();
-        if (StringUtils.equals(PerformanceTestStatus.Running.name(), reportStatus)) {
-            MSException.throwException("Reporting in progress...");
-        } else if (StringUtils.equals(PerformanceTestStatus.Reporting.name(), reportStatus)) {
-            MSException.throwException("Reporting in progress...");
-        } else if (StringUtils.equals(PerformanceTestStatus.Error.name(), reportStatus)) {
+        if (StringUtils.equals(PerformanceTestStatus.Error.name(), reportStatus)) {
             MSException.throwException("Report generation error!");
         }
     }
@@ -213,5 +217,9 @@ public class ReportService {
 
         String content = loadTestReportLogs.stream().map(LoadTestReportLog::getContent).reduce("", (a, b) -> a + b);
         return content.getBytes();
+    }
+
+    public LoadTestReport getReport(String reportId) {
+        return loadTestReportMapper.selectByPrimaryKey(reportId);
     }
 }

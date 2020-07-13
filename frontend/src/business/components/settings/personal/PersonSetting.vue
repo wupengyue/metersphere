@@ -24,7 +24,7 @@
           <template v-slot:default="scope">
             <ms-table-operator-button :tip="$t('member.edit_information')" icon="el-icon-edit"
                                       type="primary" @exec="edit(scope.row)"/>
-            <ms-table-operator-button :tip="$t('member.edit_password')" icon="el-icon-s-tools"
+            <ms-table-operator-button :tip="$t('member.edit_password')" icon="el-icon-s-tools" v-if="!isLdapUser"
                                       type="success" @exec="editPassword(scope.row)"/>
           </template>
         </el-table-column>
@@ -43,7 +43,7 @@
           <el-input v-model="form.name" autocomplete="off"/>
         </el-form-item>
         <el-form-item :label="$t('commons.email')" prop="email">
-          <el-input v-model="form.email" autocomplete="off"/>
+          <el-input v-model="form.email" autocomplete="off" :disabled="isLdapUser"/>
         </el-form-item>
         <el-form-item :label="$t('commons.phone')" prop="phone">
           <el-input v-model="form.phone" autocomplete="off"/>
@@ -57,7 +57,7 @@
     </el-dialog>
 
     <!--Change personal password-->
-    <el-dialog :title="$t('member.edit_password')" :visible.sync="editPasswordVisible" width="35%" left>
+    <el-dialog :title="$t('member.edit_password')" :visible.sync="editPasswordVisible" width="35%" :before-close='closeDialog' left  >
       <el-form :model="ruleForm" :rules="rules" ref="editPasswordForm" label-width="120px" class="demo-ruleForm">
         <el-form-item :label="$t('member.old_password')" prop="password" style="margin-bottom: 29px">
           <el-input v-model="ruleForm.password" autocomplete="off" show-password/>
@@ -68,7 +68,7 @@
       </el-form>
       <span slot="footer" class="dialog-footer">
            <ms-dialog-footer
-             @cancel="editPasswordVisible = false"
+             @cancel="cancel()"
              @confirm="updatePassword('editPasswordForm')"/>
         </span>
     </el-dialog>
@@ -89,6 +89,7 @@
     data() {
       return {
         result: {},
+        isLdapUser: false,
         updateVisible: false,
         editPasswordVisible: false,
         tableData: [],
@@ -156,6 +157,16 @@
       editPassword(row) {
         this.editPasswordVisible = true;
       },
+      cancel(){
+        this.editPasswordVisible = false;
+        this.ruleForm.password="";
+        this.ruleForm.newpassword="";
+      },
+      closeDialog(){
+        this.editPasswordVisible = false;
+        this.ruleForm.password="";
+        this.ruleForm.newpassword="";
+      },
       updateUser(updateUserForm) {
         this.$refs[updateUserForm].validate(valid => {
           if (valid) {
@@ -188,6 +199,7 @@
       initTableData() {
         this.result = this.$get("/user/info/" + this.currentUser().id, response => {
           let data = response.data;
+          this.isLdapUser = response.data.source === 'Ldap' ? true : false;
           let dataList = [];
           dataList[0] = data;
           this.tableData = dataList;

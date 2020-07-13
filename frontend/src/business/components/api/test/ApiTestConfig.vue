@@ -4,7 +4,7 @@
       <el-card>
         <el-container class="test-container" v-loading="result.loading">
           <el-header>
-            <el-row type="flex" align="middle">
+            <el-row>
               <el-input :disabled="isReadOnly" class="test-name" v-model="test.name" maxlength="60"
                         :placeholder="$t('api_test.input_name')"
                         show-word-limit>
@@ -39,16 +39,23 @@
                   <el-dropdown-item command="performance" :disabled="create || isReadOnly">
                     {{$t('api_test.create_performance_test')}}
                   </el-dropdown-item>
-                  <el-dropdown-item command="export" :disabled="isDisabled || isReadOnly">
+                  <el-dropdown-item command="export" :disabled="isReadOnly || create">
                     {{$t('api_test.export_config')}}
+                  </el-dropdown-item>
+                  <el-dropdown-item command="import" :disabled="isReadOnly">
+                    {{$t('api_test.api_import.label')}}
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </el-dropdown>
 
+              <api-import ref="apiImport"/>
+
               <ms-api-report-dialog :test-id="id" ref="reportDialog"/>
+
+              <ms-schedule-config :schedule="test.schedule" :save="saveCronExpression" @scheduleChange="saveSchedule" :check-open="checkScheduleEdit"/>
             </el-row>
           </el-header>
-          <ms-api-scenario-config :is-read-only="isReadOnly" :scenarios="test.scenarioDefinition" ref="config"/>
+          <ms-api-scenario-config :is-read-only="isReadOnly" :scenarios="test.scenarioDefinition" :project-id="test.projectId" ref="config"/>
         </el-container>
       </el-card>
     </div>
@@ -61,11 +68,13 @@
   import MsApiReportStatus from "../report/ApiReportStatus";
   import MsApiReportDialog from "./ApiReportDialog";
   import {checkoutTestManagerOrTestUser, downloadFile} from "../../../../common/js/utils";
+  import MsScheduleConfig from "../../common/components/MsScheduleConfig";
+  import ApiImport from "./components/import/ApiImport";
 
   export default {
     name: "MsApiTestConfig",
 
-    components: {MsApiReportDialog, MsApiReportStatus, MsApiScenarioConfig},
+    components: {ApiImport, MsScheduleConfig, MsApiReportDialog, MsApiReportStatus, MsApiScenarioConfig},
 
     props: ["id"],
 
@@ -126,6 +135,7 @@
               name: item.name,
               status: item.status,
               scenarioDefinition: JSON.parse(item.scenarioDefinition),
+              schedule: item.schedule ? item.schedule : {},
             });
             this.$refs.config.reset();
           }
@@ -150,7 +160,7 @@
         })
       },
       runTest() {
-        this.result = this.$post("/api/run", {id: this.test.id}, (response) => {
+        this.result = this.$post("/api/run", {id: this.test.id, triggerMode: 'MANUAL'}, (response) => {
           this.$success(this.$t('api_test.running'));
           this.$router.push({
             path: '/api/report/view/' + response.data
@@ -207,7 +217,36 @@
           case "export":
             downloadFile(this.test.name + ".json", this.test.export());
             break;
+          case "import":
+            this.$refs.apiImport.open();
+            break;
         }
+      },
+      saveCronExpression(cronExpression) {
+        this.test.schedule.enable = true;
+        this.test.schedule.value = cronExpression;
+        this.saveSchedule();
+      },
+      saveSchedule() {
+        this.checkScheduleEdit();
+        let param = {};
+        param = this.test.schedule;
+        param.resourceId = this.test.id;
+        let url = '/api/schedule/create';
+        if (param.id) {
+          url = '/api/schedule/update';
+        }
+        this.$post(url, param, response => {
+          this.$success(this.$t('commons.save_success'));
+          this.getTest(this.test.id);
+        });
+      },
+      checkScheduleEdit() {
+        if (this.create) {
+          this.$message(this.$t('api_test.environment.please_save_test'));
+          return false;
+        }
+        return true;
       }
     },
 

@@ -3,17 +3,9 @@
     <ms-main-container>
       <el-card class="table-card" v-loading="result.loading">
         <template v-slot:header>
-          <div>
-            <el-row type="flex" justify="space-between" align="middle">
-              <span class="title">{{$t('commons.report')}}</span>
-              <span class="search">
-              <el-input type="text" size="small" :placeholder="$t('report.search_by_name')"
-                        prefix-icon="el-icon-search"
-                        maxlength="60"
-                        v-model="condition.name" @change="search" clearable/>
-            </span>
-            </el-row>
-          </div>
+          <ms-table-header :is-tester-permission="true" :condition.sync="condition" @search="search"
+                           :title="$t('commons.report')"
+                           :show-create="false"/>
         </template>
 
         <el-table :data="tableData" class="test-content"
@@ -53,6 +45,11 @@
               <span>{{ scope.row.createTime | timestampFormatDate }}</span>
             </template>
           </el-table-column>
+          <el-table-column prop="triggerMode" width="150" :label="'触发方式'" column-key="triggerMode" :filters="triggerFilters">
+            <template v-slot:default="scope">
+              <report-trigger-mode-item :trigger-mode="scope.row.triggerMode"/>
+            </template>
+          </el-table-column>
           <el-table-column
             prop="status"
             column-key="status"
@@ -85,10 +82,16 @@
   import MsPerformanceReportStatus from "./PerformanceReportStatus";
   import {_filter, _sort} from "../../../../common/js/utils";
   import MsTableOperatorButton from "../../common/components/MsTableOperatorButton";
+  import ReportTriggerModeItem from "../../common/tableItem/ReportTriggerModeItem";
+  import {getReportConfigs} from "../../common/components/search/search-components";
+  import MsTableHeader from "../../common/components/MsTableHeader";
 
   export default {
     name: "PerformanceTestReport",
-    components: {MsTableOperatorButton, MsPerformanceReportStatus, MsTablePagination, MsContainer, MsMainContainer},
+    components: {
+      MsTableHeader,
+      ReportTriggerModeItem,
+      MsTableOperatorButton, MsPerformanceReportStatus, MsTablePagination, MsContainer, MsMainContainer},
     created: function () {
       this.initTableData();
     },
@@ -97,7 +100,9 @@
         result: {},
         queryPath: "/performance/report/list/all",
         deletePath: "/performance/report/delete/",
-        condition: {},
+        condition: {
+          components: getReportConfigs()
+        },
         projectId: null,
         tableData: [],
         multipleSelection: [],
@@ -112,19 +117,28 @@
           {text: 'Reporting', value: 'Reporting'},
           {text: 'Completed', value: 'Completed'},
           {text: 'Error', value: 'Error'}
-        ]
+        ],
+        triggerFilters: [
+          {text: '手动', value: 'MANUAL'},
+          {text: '定时任务', value: 'SCHEDULE'},
+          {text: 'API', value: 'API'}
+        ],
       }
     },
     methods: {
-      initTableData() {
-        this.result = this.$post(this.buildPagePath(this.queryPath), this.condition, response => {
+      initTableData(combine) {
+        let condition = combine ? {combine: combine} : this.condition;
+        if (this.testId !== 'all') {
+          condition.testId = this.testId;
+        }
+        this.result = this.$post(this.buildPagePath(this.queryPath), condition, response => {
           let data = response.data;
           this.total = data.itemCount;
           this.tableData = data.listObject;
         });
       },
-      search() {
-        this.initTableData();
+      search(combine) {
+        this.initTableData(combine);
       },
       buildPagePath(path) {
         return path + "/" + this.currentPage + "/" + this.pageSize;

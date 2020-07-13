@@ -8,7 +8,7 @@ import io.metersphere.api.dto.QueryAPITestRequest;
 import io.metersphere.api.dto.SaveAPITestRequest;
 import io.metersphere.api.service.APITestService;
 import io.metersphere.base.domain.ApiTest;
-import io.metersphere.base.domain.ApiTestWithBLOBs;
+import io.metersphere.base.domain.Schedule;
 import io.metersphere.commons.constants.RoleConstants;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
@@ -50,6 +50,22 @@ public class APITestController {
         return apiTestService.getApiTestByProjectId(projectId);
     }
 
+
+    @GetMapping("/state/get/{testId}")
+    public ApiTest apiState(@PathVariable String testId) {
+        return apiTestService.getApiTestByTestId(testId);
+    }
+
+    @PostMapping(value = "/schedule/update")
+    public void updateSchedule(@RequestBody Schedule request) {
+        apiTestService.updateSchedule(request);
+    }
+
+    @PostMapping(value = "/schedule/create")
+    public void createSchedule(@RequestBody Schedule request) {
+        apiTestService.createSchedule(request);
+    }
+
     @PostMapping(value = "/create", consumes = {"multipart/form-data"})
     public void create(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "files") List<MultipartFile> files) {
         apiTestService.create(request, files);
@@ -66,7 +82,7 @@ public class APITestController {
     }
 
     @GetMapping("/get/{testId}")
-    public ApiTestWithBLOBs get(@PathVariable String testId) {
+    public APITestResult get(@PathVariable String testId) {
         return apiTestService.get(testId);
     }
 
@@ -79,4 +95,11 @@ public class APITestController {
     public String run(@RequestBody SaveAPITestRequest request) {
         return apiTestService.run(request);
     }
+
+    @PostMapping("/import/{platform}")
+    @RequiresRoles(value = {RoleConstants.TEST_USER, RoleConstants.TEST_MANAGER}, logical = Logical.OR)
+    public ApiTest testCaseImport(MultipartFile file, @PathVariable String platform) {
+        return apiTestService.apiTestImport(file, platform);
+    }
+
 }

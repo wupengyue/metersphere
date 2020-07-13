@@ -1,5 +1,6 @@
 package io.metersphere.config;
 
+import io.metersphere.security.ApiKeyFilter;
 import io.metersphere.security.LoginFilter;
 import io.metersphere.security.ShiroDBRealm;
 import org.apache.shiro.cache.MemoryConstrainedCacheManager;
@@ -37,21 +38,27 @@ public class ShiroConfig {
         shiroFilterFactoryBean.setUnauthorizedUrl("/403");
         shiroFilterFactoryBean.setSuccessUrl("/");
 
+        shiroFilterFactoryBean.getFilters().put("apikey", new ApiKeyFilter());
 
         Map<String, String> filterChainDefinitionMap = shiroFilterFactoryBean.getFilterChainDefinitionMap();
         filterChainDefinitionMap.put("/resource/**", "anon");
         filterChainDefinitionMap.put("/", "anon");
         filterChainDefinitionMap.put("/signin", "anon");
+        filterChainDefinitionMap.put("/ldap/signin", "anon");
         filterChainDefinitionMap.put("/isLogin", "anon");
         filterChainDefinitionMap.put("/css/**", "anon");
         filterChainDefinitionMap.put("/js/**", "anon");
         filterChainDefinitionMap.put("/img/**", "anon");
         filterChainDefinitionMap.put("/fonts/**", "anon");
 
-        filterChainDefinitionMap.put("/api/**", "anon");
+        // for swagger
+        filterChainDefinitionMap.put("/swagger-ui.html", "anon");
+        filterChainDefinitionMap.put("/swagger-ui/**", "anon");
+        filterChainDefinitionMap.put("/v3/api-docs/**", "anon");
+
         filterChainDefinitionMap.put("/403", "anon");
         filterChainDefinitionMap.put("/anonymous/**", "anon");
-        filterChainDefinitionMap.put("/**", "authc");
+        filterChainDefinitionMap.put("/**", "apikey, authc");
         return shiroFilterFactoryBean;
     }
 

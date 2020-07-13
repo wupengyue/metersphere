@@ -1,5 +1,5 @@
 <template>
-  <div class="container" v-if="ready">
+  <div class="container" v-loading="result.loading" v-if="ready">
     <el-row type="flex">
       <el-col :span="12">
         <el-form :model="form" :rules="rules" ref="form">
@@ -15,8 +15,15 @@
             {{$t('commons.welcome')}}
           </div>
           <div class="form">
+            <el-form-item v-slot:default>
+              <el-radio-group v-model="form.authenticate">
+                <el-radio label="ldap" size="mini">LDAP</el-radio>
+                <el-radio label="normal" size="mini">普通登录</el-radio>
+              </el-radio-group>
+            </el-form-item>
             <el-form-item prop="username">
-              <el-input v-model="form.username" :placeholder="$t('commons.login_username')" autofocus autocomplete="off"/>
+              <el-input v-model="form.username" :placeholder="$t('commons.login_username')" autofocus
+                        autocomplete="off"/>
             </el-form-item>
             <el-form-item prop="password">
               <el-input v-model="form.password" :placeholder="$t('commons.password')" show-password autocomplete="off"
@@ -58,9 +65,11 @@
         }
       };*/
       return {
+        result: {},
         form: {
           username: '',
-          password: ''
+          password: '',
+          authenticate: 'normal'
         },
         rules: {
           username: [
@@ -105,24 +114,43 @@
       submit(form) {
         this.$refs[form].validate((valid) => {
           if (valid) {
-            this.$post("signin", this.form, response => {
-              saveLocalStorage(response);
-              let language = response.data.language;
-
-              if (!language) {
-                this.$get("language", response => {
-                  language = response.data;
-                  localStorage.setItem(DEFAULT_LANGUAGE, language)
-                  window.location.href = "/"
-                })
-              } else {
-                window.location.href = "/"
-              }
-            });
+            switch (this.form.authenticate) {
+              case "normal":
+                this.normalLogin();
+                break;
+              case "ldap":
+                this.ldapLogin();
+                break;
+              default:
+                this.normalLogin();
+            }
           } else {
             return false;
           }
         });
+      },
+      normalLogin() {
+        this.result = this.$post("signin", this.form, response => {
+          saveLocalStorage(response);
+          this.getLanguage(response.data.language);
+        });
+      },
+      ldapLogin() {
+        this.result = this.$post("ldap/signin", this.form, response => {
+          saveLocalStorage(response);
+          this.getLanguage(response.data.language);
+        });
+      },
+      getLanguage(language) {
+        if (!language) {
+          this.$get("language", response => {
+            language = response.data;
+            localStorage.setItem(DEFAULT_LANGUAGE, language)
+            window.location.href = "/"
+          })
+        } else {
+          window.location.href = "/"
+        }
       }
     }
   }
@@ -174,7 +202,7 @@
   }
 
   .form {
-    margin-top: 60px;
+    margin-top: 30px;
     padding: 0 40px;
   }
 

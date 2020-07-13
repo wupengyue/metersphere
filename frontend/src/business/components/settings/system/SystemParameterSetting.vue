@@ -1,77 +1,24 @@
 <template>
   <div>
-    <el-card class="box-card" v-loading="result.loading">
-      <template v-slot:header>
-        <h2>{{$t('system_parameter_setting.mailbox_service_settings')}}</h2>
-      </template>
-      <!--邮件表单-->
-      <el-form :inline="true" :model="formInline" :rules="rules" ref="formInline" class="demo-form-inline"
-               :disabled="show" v-loading="loading">
-        <el-row>
-          <el-col>
-            <el-form-item :label="$t('system_parameter_setting.SMTP_host')" prop="host">
-            </el-form-item>
-            <el-input v-model="formInline.host" :placeholder="$t('system_parameter_setting.SMTP_host')"
-                      v-on:input="change()"></el-input>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col>
-            <el-form-item :label="$t('system_parameter_setting.SMTP_port')" prop="port">
-            </el-form-item>
-            <el-input v-model="formInline.port" :placeholder="$t('system_parameter_setting.SMTP_port')"
-                      v-on:input="change()"></el-input>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col>
-            <el-form-item :label="$t('system_parameter_setting.SMTP_account')" prop="account">
-            </el-form-item>
-            <el-input v-model="formInline.account" :placeholder="$t('system_parameter_setting.SMTP_account')"
-                      v-on:input="change()"></el-input>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col>
-            <el-form-item :label="$t('system_parameter_setting.SMTP_password')" prop="password">
-            </el-form-item>
-            <el-input v-model="formInline.password" :placeholder="$t('system_parameter_setting.SMTP_password')"
-                      autocomplete="new-password" show-password type="text" @focus="changeType" ref="input">
-            </el-input>
-          </el-col>
-        </el-row>
-
-        <!---->
-        <div style="border: 0px;margin-bottom: 20px;margin-top: 20px">
-          <el-checkbox v-model="formInline.SSL" :label="$t('system_parameter_setting.SSL')"></el-checkbox>
-        </div>
-        <div style="border: 0px;margin-bottom: 20px">
-          <el-checkbox v-model="formInline.TLS" :label="$t('system_parameter_setting.TLS')"></el-checkbox>
-        </div>
-        <div style="border: 0px;margin-bottom: 20px">
-          <el-checkbox v-model="formInline.SMTP" :label="$t('system_parameter_setting.SMTP')"></el-checkbox>
-        </div>
-        <template v-slot:footer>
-        </template>
-      </el-form>
-      <div style="margin-left: 640px">
-        <el-button type="primary" @click="testConnection('formInline')" :disabled="disabledConnection">
-          {{$t('system_parameter_setting.test_connection')}}
-        </el-button>
-        <el-button @click="edit" v-if="showEdit">{{$t('commons.edit')}}</el-button>
-        <el-button type="success" @click="save('formInline')" v-if="showSave" :disabled="disabledSave">
-          {{$t('commons.save')}}
-        </el-button>
-        <el-button @click="cancel" type="info" v-if="showCancel">{{$t('commons.cancel')}}</el-button>
-      </div>
-    </el-card>
+    <el-tabs class="system-setting" v-model="activeName">
+      <el-tab-pane :label="$t('system_parameter_setting.mailbox_service_settings')" name="email">
+        <email-setting/>
+      </el-tab-pane>
+      <el-tab-pane :label="$t('system_parameter_setting.ldap_setting')" name="ldap">
+        <ldap-setting/>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
 <script>
-
+  import EmailSetting from "./EmailSetting";
+  import LdapSetting from "./LdapSetting";
   export default {
     name: "SystemParameterSetting",
+    components: {
+      EmailSetting, LdapSetting
+    },
     data() {
       return {
         formInline: {
@@ -91,11 +38,12 @@
         disabledConnection: false,
         disabledSave: false,
         loading: false,
+        activeName: 'email',
         rules: {
           host: [
             {
               required: true,
-              message: ''
+              message: ' '
             },
           ],
           port: [
@@ -115,6 +63,7 @@
 
     activated() {
       this.query()
+      this.change()
     },
     methods: {
       changeType() {
@@ -126,9 +75,15 @@
           this.$set(this.formInline, "port", response.data[1].paramValue);
           this.$set(this.formInline, "account", response.data[2].paramValue);
           this.$set(this.formInline, "password", response.data[3].paramValue);
-          this.$set(this.formInline, "SSL", JSON.parse(response.data[4].paramValue));
-          this.$set(this.formInline, "TLS", JSON.parse(response.data[5].paramValue));
-          this.$set(this.formInline, "SMTP", JSON.parse(response.data[6].paramValue));
+          if(response.data[4].paramValue!=""){
+            this.$set(this.formInline, "SSL", JSON.parse(response.data[4].paramValue));
+          }
+          if(response.data[5].paramValue!=""){
+            this.$set(this.formInline, "TLS", JSON.parse(response.data[5].paramValue));
+          }
+          if(response.data[6].paramValue!=""){
+            this.$set(this.formInline, "SMTP", JSON.parse(response.data[6].paramValue));
+          }
         })
       },
       change() {
@@ -161,6 +116,7 @@
         })
       },
       edit() {
+        this.change()
         this.showEdit = false;
         this.showSave = true;
         this.showCancel = true;
@@ -197,32 +153,17 @@
         })
       },
       cancel() {
+        this.query();
         this.showEdit = true;
         this.showCancel = false;
         this.showSave = false;
         this.show = true;
-        this.query();
+        this.change()
       }
-
     }
   }
 </script>
 
 <style scoped>
-  .text {
-    font-size: 18px;
-  }
 
-  .item {
-    margin-bottom: 30px;
-  }
-
-  .box-card {
-    padding-left: 5px;
-  }
-
-  /deep/ .el-input__inner {
-    border-width: 0px;
-    border-bottom-width: 1px;
-  }
 </style>

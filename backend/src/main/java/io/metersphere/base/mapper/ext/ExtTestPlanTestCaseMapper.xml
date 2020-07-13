@@ -63,6 +63,28 @@
             </foreach>
         </if>
     </select>
+    <select id="listByNode" resultType="io.metersphere.track.dto.TestPlanCaseDTO">
+        select test_plan_test_case.*, test_case.*
+        from test_plan_test_case
+        inner join test_case on test_plan_test_case.case_id = test_case.id
+        <where>
+            <if test="request.planId != null">
+                and test_plan_test_case.plan_id = #{request.planId}
+            </if>
+            <if test="request.method != null">
+                and test_case.method = #{request.method}
+            </if>
+
+            <if test="request.nodePaths != null and request.nodePaths.size() > 0">
+                and test_case.node_path in
+                <foreach collection="request.nodePaths" item="nodePaths" separator="," open="(" close=")">
+                    #{nodePaths}
+                </foreach>
+            </if>
+
+        </where>
+
+    </select>
 
     <select id="findRelateTestPlanId" resultType="java.lang.String">
         select distinct plan_id from test_plan_test_case

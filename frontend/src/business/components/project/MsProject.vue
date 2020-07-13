@@ -30,7 +30,12 @@
           </el-table-column>
           <el-table-column :label="$t('commons.operating')">
             <template v-slot:default="scope">
-              <ms-table-operator :is-tester-permission="true" @editClick="edit(scope.row)" @deleteClick="handleDelete(scope.row)"/>
+              <ms-table-operator :is-tester-permission="true" @editClick="edit(scope.row)" @deleteClick="handleDelete(scope.row)">
+                <template v-if="baseUrl == 'api'" v-slot:behind>
+                  <ms-table-operator-button :is-tester-permission="true" :tip="'环境配置'" icon="el-icon-setting"
+                                            type="info" @exec="openEnvironmentConfig(scope.row)"/>
+                </template>
+              </ms-table-operator>
             </template>
           </el-table-column>
         </el-table>
@@ -39,7 +44,7 @@
       </el-card>
     </ms-main-container>
 
-    <el-dialog :title="title" :visible.sync="createVisible">
+    <el-dialog :title="title" :visible.sync="createVisible" destroy-on-close>
       <el-form :model="form" :rules="rules" ref="form" label-position="right" label-width="100px" size="small">
         <el-form-item :label="$t('commons.name')" prop="name">
           <el-input v-model="form.name" autocomplete="off"></el-input>
@@ -59,6 +64,8 @@
 
     <ms-delete-confirm :title="$t('project.delete')" @delete="_handleDelete" ref="deleteConfirm"/>
 
+    <api-environment-config ref="environmentConfig"/>
+
   </ms-container>
 </template>
 
@@ -73,10 +80,14 @@
   import MsContainer from "../common/components/MsContainer";
   import MsMainContainer from "../common/components/MsMainContainer";
   import MsDeleteConfirm from "../common/components/MsDeleteConfirm";
+  import MsTableOperatorButton from "../common/components/MsTableOperatorButton";
+  import ApiEnvironmentConfig from "../api/test/components/ApiEnvironmentConfig";
 
   export default {
     name: "MsProject",
     components: {
+      ApiEnvironmentConfig,
+      MsTableOperatorButton,
       MsDeleteConfirm,
       MsMainContainer,
       MsContainer, MsTableOperator, MsCreateBox, MsTablePagination, MsTableHeader, MsDialogFooter},
@@ -179,9 +190,20 @@
         this.$refs.deleteConfirm.open(project);
       },
       _handleDelete(project) {
-        this.$get('/project/delete/' + project.id, () => {
-          Message.success(this.$t('commons.delete_success'));
-          this.list();
+        this.$confirm(this.$t('project.delete_tip'), '', {
+          confirmButtonText: this.$t('commons.confirm'),
+          cancelButtonText: this.$t('commons.cancel'),
+          type: 'warning'
+        }).then(() => {
+          this.$get('/project/delete/' + project.id, () => {
+            Message.success(this.$t('commons.delete_success'));
+            this.list();
+          });
+        }).catch(() => {
+          this.$message({
+            type: 'info',
+            message: this.$t('commons.delete_cancelled')
+          });
         });
       },
       search() {
@@ -215,6 +237,9 @@
         _sort(column, this.condition);
         this.list();
       },
+      openEnvironmentConfig(project) {
+        this.$refs.environmentConfig.open(project.id);
+      }
     }
   }
 </script>

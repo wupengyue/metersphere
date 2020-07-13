@@ -60,6 +60,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -75,6 +76,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
+
         <!-- flyway -->
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -126,13 +128,19 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
         </dependency>
+        <!-- openapi -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-ui</artifactId>
+            <version>1.2.32</version>
+        </dependency>
 
         <!-- jmeter -->
-<!--        <dependency>-->
-<!--            <groupId>org.apache.jmeter</groupId>-->
-<!--            <artifactId>ApacheJMeter_core</artifactId>-->
-<!--            <version>${jmeter.version}</version>-->
-<!--        </dependency>-->
+        <!--        <dependency>-->
+        <!--            <groupId>org.apache.jmeter</groupId>-->
+        <!--            <artifactId>ApacheJMeter_core</artifactId>-->
+        <!--            <version>${jmeter.version}</version>-->
+        <!--        </dependency>-->
 
         <dependency>
             <groupId>org.apache.jmeter</groupId>
@@ -151,6 +159,35 @@
             <groupId>com.alibaba</groupId>
             <artifactId>easyexcel</artifactId>
             <version>2.1.7</version>
+        </dependency>
+
+        <!--
+        该依赖是私有仓库的依赖，现已经发布到 Github Packages，下载请在 settings 文件中配置自己的 GITHUB_TOKEN
+        示例：
+          <servers>
+            <server>
+              <id>github</id>
+              <username>USERNAME</username>
+              <password>TOKEN</password>
+            </server>
+          </servers>
+          -->
+        <dependency>
+            <groupId>com.fit2cloud</groupId>
+            <artifactId>quartz-spring-boot-starter</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-autoconfigure</artifactId>
+                </exclusion>
+            </exclusions>
+            <version>0.0.4</version>
+        </dependency>
+
+        <!-- LDAP Module -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-ldap</artifactId>
         </dependency>
 
     </dependencies>
@@ -267,6 +304,14 @@
             </plugin>
         </plugins>
     </build>
+
+    <repositories>
+        <repository>
+            <id>github</id>
+            <name>fit2cloud</name>
+            <url>https://maven.pkg.github.com/fit2cloud/quartz-spring-boot-starter</url>
+        </repository>
+    </repositories>
 
 
 </project>
