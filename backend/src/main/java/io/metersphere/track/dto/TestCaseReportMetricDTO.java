@@ -1,9 +1,6 @@
 package io.metersphere.track.dto;
 
-import io.metersphere.track.domain.ReportBaseInfoComponent;
-import io.metersphere.track.domain.ReportFailureResultComponent;
-import io.metersphere.track.domain.ReportResultChartComponent;
-import io.metersphere.track.domain.ReportResultComponent;
+import io.metersphere.base.domain.Issues;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -16,6 +13,7 @@ public class TestCaseReportMetricDTO {
     private List<TestCaseReportStatusResultDTO> executeResult;
     private List<TestCaseReportModuleResultDTO> moduleExecuteResult;
     private List<TestPlanCaseDTO> failureTestCases;
+    private List<Issues> Issues;
     private List<String> executors;
     private String principal;
     private Long startTime;

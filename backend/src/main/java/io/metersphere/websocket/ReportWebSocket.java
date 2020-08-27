@@ -79,12 +79,15 @@ public class ReportWebSocket {
             while (stopMe) {
                 try {
                     LoadTestReport report = reportService.getReport(reportId);
-                    if (StringUtils.equalsAny(report.getStatus(), PerformanceTestStatus.Completed.name(), PerformanceTestStatus.Error.name())) {
+                    if (report == null || StringUtils.equalsAny(report.getStatus(), PerformanceTestStatus.Completed.name(), PerformanceTestStatus.Error.name())) {
                         this.stopMe();
                         session.close();
                         break;
                     }
-                    if (PerformanceTestStatus.Running.name().equals(report.getStatus())) {
+                    if (!session.isOpen()) {
+                        return;
+                    }
+                    if (StringUtils.equalsAny(report.getStatus(), PerformanceTestStatus.Running.name(), PerformanceTestStatus.Reporting.name())) {
                         session.getBasicRemote().sendText("refresh-" + this.refresh++);
                     }
                     Thread.sleep(20 * 1000L);

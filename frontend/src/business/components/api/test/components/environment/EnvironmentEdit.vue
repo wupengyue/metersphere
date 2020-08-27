@@ -22,13 +22,15 @@
       </el-form-item>
 
       <span>{{$t('api_test.environment.globalVariable')}}</span>
-      <ms-api-scenario-variables :items="environment.variables"/>
+      <ms-api-scenario-variables :show-variable="false" :items="environment.variables"/>
 
       <span>{{$t('api_test.request.headers')}}</span>
-      <ms-api-key-value :items="environment.headers"/>
+      <ms-api-key-value :items="environment.headers" :suggestions="headerSuggestions"/>
 
       <div class="environment-footer">
-        <el-button type="primary" @click="save">{{this.$t('commons.save')}}</el-button>
+        <ms-dialog-footer
+          @cancel="cancel"
+          @confirm="save()"/>
       </div>
 
     </el-form>
@@ -38,10 +40,13 @@
 <script>
     import MsApiScenarioVariables from "../ApiScenarioVariables";
     import MsApiKeyValue from "../ApiKeyValue";
+    import MsDialogFooter from "../../../../common/components/MsDialogFooter";
+    import {REQUEST_HEADERS} from "../../../../../../common/js/constants";
+    import {KeyValue} from "../../model/ScenarioModel";
 
     export default {
       name: "EnvironmentEdit",
-      components: {MsApiKeyValue, MsApiScenarioVariables},
+      components: {MsDialogFooter, MsApiKeyValue, MsApiScenarioVariables},
       props: {
         environment: {
           type: Object,
@@ -61,69 +66,76 @@
         return {
           result: {},
           rules: {
-            name :[{required: true, message: this.$t('commons.input_name'), trigger: 'blur'}],
+            name :[
+              {required: true, message: this.$t('commons.input_name'), trigger: 'blur'},
+              {max: 64, message: this.$t('commons.input_limit', [1, 64]), trigger: 'blur'}
+            ],
             socket :[{required: true, validator: socketValidator, trigger: 'blur'}],
           },
+          headerSuggestions: REQUEST_HEADERS
         }
       },
       methods: {
         save() {
           this.$refs['from'].validate((valid) => {
             if (valid) {
-             this._save();
+             this._save(this.environment);
             } else  {
               return false;
             }
           });
         },
-        _save() {
-          let param = this.buildParam();
+        _save(environment) {
+          let param = this.buildParam(environment);
           let url = '/api/environment/add';
           if (param.id) {
             url = '/api/environment/update';
           }
           this.result = this.$post(url, param,  response => {
-            this.environment.id = response.data;
+            if (!param.id) {
+              environment.id = response.data;
+            }
             this.$success(this.$t('commons.save_success'));
           });
         },
-        buildParam() {
+        buildParam(environment) {
           let param = {};
-          Object.assign(param, this.environment);
-          param.variables = JSON.stringify(this.environment.variables);
-          param.headers = JSON.stringify(this.environment.headers);
+          Object.assign(param, environment);
+          if (!(environment.variables instanceof String)) {
+            param.variables = JSON.stringify(environment.variables);
+          }
+          if (!(environment.headers instanceof String)) {
+            param.headers = JSON.stringify(environment.headers);
+          }
           return param;
         },
         validateSocket(socket) {
           if (!socket) return;
-          let socketInfo = socket.split(":");
-          if (socketInfo.length > 2) {
-            return false;
+          let urlStr = this.environment.protocol + '://' + socket;
+          let url = {};
+          try {
+            url = new URL(urlStr);
+          } catch (e) {
+            return false
           }
-          let host = socketInfo[0];
-          let port = socketInfo[1];
-          if (!this.validateHost(host) || !(port == undefined || this.validatePort(port))) {
-            return false;
+
+          this.environment.port = url.port;
+          this.environment.domain = decodeURIComponent(url.hostname);
+          if (url.port) {
+            this.environment.socket = this.environment.domain + ':' + url.port + url.pathname;
+          } else {
+            this.environment.socket = this.environment.domain + url.pathname;
           }
-          this.environment.domain = host;
-          this.environment.port = port;
           return true;
         },
-        validateHost(host) {
-          let hostReg =  /^(?=^.{3,255}$)[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+$/;
-          if (hostReg.test(host) || host === 'localhost') {
-            return true;
-          }
-          return false;
+
+        cancel() {
+          this.$emit('close');
         },
-        validatePort(port) {
-          let portReg = /^[1-9]\d*$/;
-          if (portReg.test(port) && 1 <= 1*port && 1*port <= 65535){
-            return true
-          }
-          return false;
-        }
-      }
+        clearValidate() {
+          this.$refs["from"].clearValidate();
+        },
+      },
     }
 </script>
 

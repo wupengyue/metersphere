@@ -1,5 +1,6 @@
 package io.metersphere.api.dto.scenario;
 
+import io.metersphere.api.dto.scenario.request.Request;
 import lombok.Data;
 
 import java.util.List;
@@ -9,7 +10,10 @@ public class Scenario {
     private String name;
     private String url;
     private String environmentId;
+    private Boolean enableCookieShare;
     private List<KeyValue> variables;
     private List<KeyValue> headers;
     private List<Request> requests;
+    private DubboConfig dubboConfig;
+    private Boolean enable;
 }

@@ -2,8 +2,8 @@ package io.metersphere.performance.controller;
 
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
-import io.metersphere.base.domain.LoadTestReport;
 import io.metersphere.base.domain.LoadTestReportLog;
+import io.metersphere.base.domain.LoadTestReportWithBLOBs;
 import io.metersphere.commons.constants.RoleConstants;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
@@ -15,12 +15,10 @@ import io.metersphere.performance.controller.request.ReportRequest;
 import io.metersphere.performance.service.ReportService;
 import org.apache.shiro.authz.annotation.Logical;
 import org.apache.shiro.authz.annotation.RequiresRoles;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 
 @RestController
@@ -96,7 +94,7 @@ public class PerformanceReportController {
     }
 
     @GetMapping("/{reportId}")
-    public LoadTestReport getLoadTestReport(@PathVariable String reportId) {
+    public LoadTestReportWithBLOBs getLoadTestReport(@PathVariable String reportId) {
         return reportService.getLoadTestReport(reportId);
     }
 
@@ -107,16 +105,12 @@ public class PerformanceReportController {
 
     @GetMapping("log/{reportId}/{resourceId}/{goPage}")
     public Pager<List<LoadTestReportLog>> logs(@PathVariable String reportId, @PathVariable String resourceId, @PathVariable int goPage) {
-        Page<Object> page = PageHelper.startPage(goPage, 10, true);
+        Page<Object> page = PageHelper.startPage(goPage, 1, true);
         return PageUtils.setPageInfo(page, reportService.getReportLogs(reportId, resourceId));
     }
 
     @GetMapping("log/download/{reportId}/{resourceId}")
-    public ResponseEntity<byte[]> downloadLog(@PathVariable String reportId, @PathVariable String resourceId) {
-        byte[] bytes = reportService.downloadLog(reportId, resourceId);
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("application/octet-stream"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"jmeter.log\"")
-                .body(bytes);
+    public void downloadLog(@PathVariable String reportId, @PathVariable String resourceId, HttpServletResponse response) throws Exception {
+        reportService.downloadLog(response, reportId, resourceId);
     }
 }

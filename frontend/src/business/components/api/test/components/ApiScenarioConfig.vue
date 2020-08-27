@@ -5,13 +5,13 @@
         <ms-api-collapse v-model="activeName" @change="handleChange" accordion>
           <draggable :list="scenarios" group="Scenario" class="scenario-draggable" ghost-class="scenario-ghost">
             <ms-api-collapse-item v-for="(scenario, index) in scenarios" :key="index"
-                                  :title="scenario.name" :name="index">
+                                  :title="scenario.name" :name="index" :class="{'disable-scenario': !scenario.enable}">
               <template slot="title">
                 <div class="scenario-name">
                   {{scenario.name}}
                   <span id="hint" v-if="!scenario.name">
-                  {{$t('api_test.scenario.config')}}
-                </span>
+                    {{$t('api_test.scenario.config')}}
+                  </span>
                 </div>
                 <el-dropdown trigger="click" @command="handleCommand">
                   <span class="el-dropdown-link el-icon-more scenario-btn"/>
@@ -22,10 +22,16 @@
                     <el-dropdown-item :disabled="isReadOnly" :command="{type:'delete', index:index}">
                       {{$t('api_test.scenario.delete')}}
                     </el-dropdown-item>
+                    <el-dropdown-item v-if="scenario.enable" :disabled="isReadOnly" :command="{type:'disable', index:index}">
+                      {{$t('api_test.scenario.disable')}}
+                    </el-dropdown-item>
+                    <el-dropdown-item v-if="!scenario.enable" :disabled="isReadOnly" :command="{type:'enable', index:index}">
+                      {{$t('api_test.scenario.enable')}}
+                    </el-dropdown-item>
                   </el-dropdown-menu>
                 </el-dropdown>
               </template>
-              <ms-api-request-config :is-read-only="isReadOnly" :scenario="scenario" :open="select"/>
+              <ms-api-request-config :is-read-only="isReadOnly" :scenario="scenario" @select="select"/>
             </ms-api-collapse-item>
           </draggable>
         </ms-api-collapse>
@@ -36,7 +42,8 @@
     <el-main class="scenario-main">
       <div class="scenario-form">
         <ms-api-scenario-form :is-read-only="isReadOnly" :scenario="selected" :project-id="projectId" v-if="isScenario"/>
-        <ms-api-request-form :is-read-only="isReadOnly" :request="selected" :project-id="projectId" v-if="isRequest"/>
+        <ms-api-request-form :debug-report-id="debugReportId" @runDebug="runDebug" :is-read-only="isReadOnly"
+                             :request="selected" :scenario="currentScenario" v-if="isRequest"/>
       </div>
     </el-main>
   </el-container>
@@ -44,25 +51,25 @@
 
 <script>
 
-  import MsApiCollapseItem from "./collapse/ApiCollapseItem";
-  import MsApiCollapse from "./collapse/ApiCollapse";
-  import MsApiRequestConfig from "./ApiRequestConfig";
-  import MsApiRequestForm from "./ApiRequestForm";
-  import MsApiScenarioForm from "./ApiScenarioForm";
-  import {Scenario, Request} from "../model/ScenarioModel";
-  import draggable from 'vuedraggable';
+import MsApiCollapseItem from "./collapse/ApiCollapseItem";
+import MsApiCollapse from "./collapse/ApiCollapse";
+import MsApiRequestConfig from "./request/ApiRequestConfig";
+import MsApiRequestForm from "./request/ApiRequestForm";
+import MsApiScenarioForm from "./ApiScenarioForm";
+import {Request, Scenario} from "../model/ScenarioModel";
+import draggable from 'vuedraggable';
 
-  export default {
-    name: "MsApiScenarioConfig",
+export default {
+  name: "MsApiScenarioConfig",
 
-    components: {
-      MsApiRequestConfig,
-      MsApiScenarioForm,
-      MsApiRequestForm,
-      MsApiCollapse,
-      MsApiCollapseItem,
-      draggable
-    },
+  components: {
+    MsApiRequestConfig,
+    MsApiScenarioForm,
+    MsApiRequestForm,
+    MsApiCollapse,
+    MsApiCollapseItem,
+    draggable
+  },
 
     props: {
       scenarios: Array,
@@ -70,14 +77,26 @@
       isReadOnly: {
         type: Boolean,
         default: false
-      }
+      },
+      debugReportId: String
     },
 
     data() {
       return {
         activeName: 0,
-        selected: [Scenario, Request]
+        selected: [Scenario, Request],
+        currentScenario: {}
       }
+    },
+
+    watch: {
+      projectId() {
+        this.initScenarioEnvironment();
+      }
+    },
+
+    activated() {
+      this.initScenarioEnvironment();
     },
 
     methods: {
@@ -95,6 +114,12 @@
           this.select(this.scenarios[0]);
         }
       },
+      disableScenario: function (index) {
+        this.scenarios[index].enable = false;
+      },
+      enableScenario: function (index) {
+        this.scenarios[index].enable = true;
+      },
       handleChange: function (index) {
         this.select(this.scenarios[index]);
       },
@@ -106,11 +131,22 @@
           case "delete":
             this.deleteScenario(command.index);
             break;
+          case "disable":
+            this.disableScenario(command.index);
+            break;
+          case "enable":
+            this.enableScenario(command.index);
+            break;
         }
       },
-      select: function (obj) {
+      select: function (obj, scenario) {
         this.selected = null;
         this.$nextTick(function () {
+          if (obj instanceof Scenario) {
+            this.currentScenario = obj;
+          } else {
+            this.currentScenario = scenario;
+          }
           this.selected = obj;
         });
       },
@@ -119,6 +155,29 @@
           this.activeName = 0;
           this.select(this.scenarios[0]);
         });
+      },
+      initScenarioEnvironment: function ()  {
+        if (this.projectId) {
+          this.result = this.$get('/api/environment/list/' + this.projectId, response => {
+            let environments = response.data;
+            let environmentMap = new Map();
+            environments.forEach(environment => {
+              environmentMap.set(environment.id, environment);
+            });
+            this.scenarios.forEach(scenario => {
+              if (scenario.environmentId) {
+                scenario.environment = environmentMap.get(scenario.environmentId);
+              }
+            });
+          });
+        }
+      },
+      runDebug(request) {
+        let scenario =  new Scenario();
+        Object.assign(scenario, this.currentScenario);
+        scenario.requests = [];
+        scenario.requests.push(request);
+        this.$emit('runDebug', scenario);
       }
     },
 
@@ -162,9 +221,9 @@
     width: 100%;
   }
 
-  .scenario-name > #hint {
-    color: #8a8b8d;
-  }
+  /*.scenario-name > #hint {*/
+    /*color: #8a8b8d;*/
+  /*}*/
 
   .scenario-btn {
     text-align: center;
@@ -199,5 +258,10 @@
 
   .scenario-draggable {
     background-color: #909399;
+  }
+
+  .disable-scenario >>> .el-collapse-item__header {
+    border-right: 2px solid #909399;
+    color: #8a8b8d;
   }
 </style>

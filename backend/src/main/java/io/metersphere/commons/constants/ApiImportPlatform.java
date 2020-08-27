@@ -1,5 +1,5 @@
 package io.metersphere.commons.constants;
 
-public enum  ApiImportPlatform {
-    Metersphere, Postman
+public enum ApiImportPlatform {
+    Metersphere, Postman, Swagger2
 }

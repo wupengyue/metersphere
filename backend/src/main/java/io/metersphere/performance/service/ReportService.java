@@ -23,6 +23,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletResponse;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -97,7 +99,7 @@ public class ReportService {
         loadTestReportMapper.deleteByPrimaryKey(reportId);
     }
 
-    private void stopEngine(LoadTestWithBLOBs loadTest, Engine engine) {
+    public void stopEngine(LoadTestWithBLOBs loadTest, Engine engine) {
         engine.stop();
         loadTest.setStatus(PerformanceTestStatus.Saved.name());
         loadTestMapper.updateByPrimaryKeySelective(loadTest);
@@ -167,8 +169,8 @@ public class ReportService {
         }
     }
 
-    public LoadTestReport getLoadTestReport(String id) {
-        return extLoadTestReportMapper.selectByPrimaryKey(id);
+    public LoadTestReportWithBLOBs getLoadTestReport(String id) {
+        return loadTestReportMapper.selectByPrimaryKey(id);
     }
 
     public List<LogDetailDTO> getReportLogResource(String reportId) {
@@ -206,20 +208,42 @@ public class ReportService {
     public List<LoadTestReportLog> getReportLogs(String reportId, String resourceId) {
         LoadTestReportLogExample example = new LoadTestReportLogExample();
         example.createCriteria().andReportIdEqualTo(reportId).andResourceIdEqualTo(resourceId);
-        example.setOrderByClause("part desc");
+        example.setOrderByClause("part");
         return loadTestReportLogMapper.selectByExampleWithBLOBs(example);
     }
 
-    public byte[] downloadLog(String reportId, String resourceId) {
+    public void downloadLog(HttpServletResponse response, String reportId, String resourceId) throws Exception {
         LoadTestReportLogExample example = new LoadTestReportLogExample();
-        example.createCriteria().andReportIdEqualTo(reportId).andResourceIdEqualTo(resourceId);
-        List<LoadTestReportLog> loadTestReportLogs = loadTestReportLogMapper.selectByExampleWithBLOBs(example);
+        LoadTestReportLogExample.Criteria criteria = example.createCriteria();
+        criteria.andReportIdEqualTo(reportId).andResourceIdEqualTo(resourceId);
+        example.setOrderByClause("part");
 
-        String content = loadTestReportLogs.stream().map(LoadTestReportLog::getContent).reduce("", (a, b) -> a + b);
-        return content.getBytes();
+        long count = loadTestReportLogMapper.countByExample(example);
+
+        try (OutputStream outputStream = response.getOutputStream()) {
+            response.setContentType("application/x-download");
+            response.addHeader("Content-Disposition", "attachment;filename=jmeter.log");
+            for (long i = 1; i <= count; i++) {
+                example.clear();
+                LoadTestReportLogExample.Criteria innerCriteria = example.createCriteria();
+                innerCriteria.andReportIdEqualTo(reportId).andResourceIdEqualTo(resourceId).andPartEqualTo(i);
+
+                List<LoadTestReportLog> loadTestReportLogs = loadTestReportLogMapper.selectByExampleWithBLOBs(example);
+                LoadTestReportLog content = loadTestReportLogs.get(0);
+                outputStream.write(content.getContent().getBytes());
+                outputStream.flush();
+            }
+        }
     }
 
     public LoadTestReport getReport(String reportId) {
         return loadTestReportMapper.selectByPrimaryKey(reportId);
+    }
+
+    public void updateStatus(String reportId, String status) {
+        LoadTestReportWithBLOBs report = new LoadTestReportWithBLOBs();
+        report.setId(reportId);
+        report.setStatus(status);
+        loadTestReportMapper.updateByPrimaryKeySelective(report);
     }
 }

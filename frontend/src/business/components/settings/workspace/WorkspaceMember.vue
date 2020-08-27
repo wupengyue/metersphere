@@ -5,7 +5,7 @@
         <ms-table-header :condition.sync="condition" @search="initTableData" @create="create"
                          :create-tip="$t('member.create')" :title="$t('commons.member')"/>
       </template>
-      <el-table :data="tableData" style="width: 100%">
+      <el-table  border class="adjust-table" :data="tableData" style="width: 100%">
         <el-table-column prop="id" label="ID"/>
         <el-table-column prop="name" :label="$t('commons.username')"/>
         <el-table-column prop="email" :label="$t('commons.email')"/>
@@ -108,7 +108,7 @@
   import MsRolesTag from "../../common/components/MsRolesTag";
   import MsTableOperator from "../../common/components/MsTableOperator";
   import MsDialogFooter from "../../common/components/MsDialogFooter";
-  import {getCurrentUser} from "../../../../common/js/utils";
+  import {getCurrentUser, listenGoBack, removeGoBackListener} from "../../../../common/js/utils";
 
   export default {
     name: "MsMember",
@@ -159,7 +159,7 @@
           this.tableData = data.listObject;
           let url = "/userrole/list/ws/" + this.currentUser().lastWorkspaceId;
           for (let i = 0; i < this.tableData.length; i++) {
-            this.$get(url + "/" + this.tableData[i].id, response => {
+            this.$get(url + "/" + encodeURIComponent(this.tableData[i].id), response => {
               let roles = response.data;
               this.$set(this.tableData[i], "roles", roles);
             })
@@ -173,6 +173,9 @@
       },
       handleClose() {
         this.form = {};
+        this.createVisible = false;
+        this.updateVisible = false;
+        removeGoBackListener(this.handleClose);
       },
       del(row) {
         this.$confirm(this.$t('member.remove_member'), '', {
@@ -180,7 +183,7 @@
           cancelButtonText: this.$t('commons.cancel'),
           type: 'warning'
         }).then(() => {
-          this.result = this.$get('/user/ws/member/delete/' + this.currentUser().lastWorkspaceId + '/' + row.id,() => {
+          this.result = this.$get('/user/ws/member/delete/' + this.currentUser().lastWorkspaceId + '/' + encodeURIComponent(row.id),() => {
             this.$success(this.$t('commons.remove_success'));
             this.initTableData();
           });
@@ -197,6 +200,7 @@
         })
         // 编辑使填充角色信息
         this.$set(this.form, 'roleIds', roleIds);
+        listenGoBack(this.handleClose);
       },
       updateWorkspaceMember(formName) {
         let param = {
@@ -239,6 +243,7 @@
         this.result = this.$get('/role/list/test', response => {
           this.$set(this.form, "roles", response.data);
         })
+        listenGoBack(this.handleClose);
       },
       submitForm(formName) {
         this.$refs[formName].validate((valid) => {

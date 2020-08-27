@@ -10,21 +10,20 @@ import io.metersphere.base.mapper.ApiTestReportDetailMapper;
 import io.metersphere.base.mapper.ApiTestReportMapper;
 import io.metersphere.base.mapper.ext.ExtApiTestReportMapper;
 import io.metersphere.commons.constants.APITestStatus;
+import io.metersphere.commons.constants.ReportTriggerMode;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.ServiceUtils;
-import io.metersphere.commons.utils.SessionUtils;
 import io.metersphere.dto.DashboardTestDTO;
 import io.metersphere.i18n.Translator;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
-
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -76,8 +75,7 @@ public class APIReportService {
         apiTestReportDetailMapper.deleteByExample(detailExample);
     }
 
-    public void complete(TestResult result) {
-        ApiTestReport report = getRunningReport(result.getTestId());
+    public void complete(TestResult result, ApiTestReport report) {
         if (report == null) {
             MSException.throwException(Translator.get("api_report_is_null"));
         }
@@ -90,7 +88,14 @@ public class APIReportService {
 
         // report
         report.setUpdateTime(System.currentTimeMillis());
-        report.setStatus(APITestStatus.Completed.name());
+        if (!StringUtils.equals(report.getStatus(), APITestStatus.Debug.name())) {
+            if (result.getError() > 0) {
+                report.setStatus(APITestStatus.Error.name());
+            } else {
+                report.setStatus(APITestStatus.Success.name());
+            }
+        }
+
         apiTestReportMapper.updateByPrimaryKeySelective(report);
     }
 
@@ -99,7 +104,18 @@ public class APIReportService {
         if (running != null) {
             return running.getId();
         }
+        ApiTestReport report = buildReport(test, triggerMode, APITestStatus.Running.name());
+        apiTestReportMapper.insert(report);
+        return report.getId();
+    }
 
+    public String createDebugReport(ApiTest test) {
+        ApiTestReport report = buildReport(test, ReportTriggerMode.MANUAL.name(), APITestStatus.Debug.name());
+        apiTestReportMapper.insert(report);
+        return report.getId();
+    }
+
+    public ApiTestReport buildReport(ApiTest test, String triggerMode, String status) {
         ApiTestReport report = new ApiTestReport();
         report.setId(UUID.randomUUID().toString());
         report.setTestId(test.getId());
@@ -108,11 +124,9 @@ public class APIReportService {
         report.setDescription(test.getDescription());
         report.setCreateTime(System.currentTimeMillis());
         report.setUpdateTime(System.currentTimeMillis());
-        report.setStatus(APITestStatus.Running.name());
+        report.setStatus(status);
         report.setUserId(test.getUserId());
-        apiTestReportMapper.insert(report);
-
-        return report.getId();
+        return report;
     }
 
     public ApiTestReport getRunningReport(String testId) {

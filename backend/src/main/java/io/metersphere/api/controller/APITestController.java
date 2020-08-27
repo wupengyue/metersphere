@@ -2,10 +2,8 @@ package io.metersphere.api.controller;
 
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
-import io.metersphere.api.dto.APITestResult;
-import io.metersphere.api.dto.DeleteAPITestRequest;
-import io.metersphere.api.dto.QueryAPITestRequest;
-import io.metersphere.api.dto.SaveAPITestRequest;
+import io.metersphere.api.dto.*;
+import io.metersphere.api.dto.scenario.request.dubbo.RegistryCenter;
 import io.metersphere.api.service.APITestService;
 import io.metersphere.base.domain.ApiTest;
 import io.metersphere.base.domain.Schedule;
@@ -13,14 +11,15 @@ import io.metersphere.commons.constants.RoleConstants;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
 import io.metersphere.commons.utils.SessionUtils;
+import io.metersphere.controller.request.QueryScheduleRequest;
+import io.metersphere.dto.ScheduleDao;
 import org.apache.shiro.authz.annotation.Logical;
 import org.apache.shiro.authz.annotation.RequiresRoles;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
-
 import javax.annotation.Resource;
+import java.util.List;
 
 @RestController
 @RequestMapping(value = "/api")
@@ -50,12 +49,6 @@ public class APITestController {
         return apiTestService.getApiTestByProjectId(projectId);
     }
 
-
-    @GetMapping("/state/get/{testId}")
-    public ApiTest apiState(@PathVariable String testId) {
-        return apiTestService.getApiTestByTestId(testId);
-    }
-
     @PostMapping(value = "/schedule/update")
     public void updateSchedule(@RequestBody Schedule request) {
         apiTestService.updateSchedule(request);
@@ -67,13 +60,13 @@ public class APITestController {
     }
 
     @PostMapping(value = "/create", consumes = {"multipart/form-data"})
-    public void create(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "files") List<MultipartFile> files) {
-        apiTestService.create(request, files);
+    public void create(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "file") MultipartFile file, @RequestPart(value = "files") List<MultipartFile> bodyFiles) {
+        apiTestService.create(request, file, bodyFiles);
     }
 
     @PostMapping(value = "/update", consumes = {"multipart/form-data"})
-    public void update(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "files") List<MultipartFile> files) {
-        apiTestService.update(request, files);
+    public void update(@RequestPart("request") SaveAPITestRequest request, @RequestPart(value = "file") MultipartFile file, @RequestPart(value = "files") List<MultipartFile> bodyFiles) {
+            apiTestService.update(request, file, bodyFiles);
     }
 
     @PostMapping(value = "/copy")
@@ -86,6 +79,7 @@ public class APITestController {
         return apiTestService.get(testId);
     }
 
+
     @PostMapping("/delete")
     public void delete(@RequestBody DeleteAPITestRequest request) {
         apiTestService.delete(request.getId());
@@ -96,10 +90,30 @@ public class APITestController {
         return apiTestService.run(request);
     }
 
-    @PostMapping("/import/{platform}")
-    @RequiresRoles(value = {RoleConstants.TEST_USER, RoleConstants.TEST_MANAGER}, logical = Logical.OR)
-    public ApiTest testCaseImport(MultipartFile file, @PathVariable String platform) {
-        return apiTestService.apiTestImport(file, platform);
+    @PostMapping(value = "/run/debug", consumes = {"multipart/form-data"})
+    public String runDebug(@RequestPart("request")  SaveAPITestRequest request,  @RequestPart(value = "file") MultipartFile file, @RequestPart(value = "files") List<MultipartFile> bodyFiles) {
+        return apiTestService.runDebug(request, file, bodyFiles);
     }
 
+    @PostMapping(value = "/import", consumes = {"multipart/form-data"})
+    @RequiresRoles(value = {RoleConstants.TEST_USER, RoleConstants.TEST_MANAGER}, logical = Logical.OR)
+    public ApiTest testCaseImport(@RequestPart(value = "file", required = false) MultipartFile file, @RequestPart("request") ApiTestImportRequest request) {
+        return apiTestService.apiTestImport(file, request);
+    }
+
+    @PostMapping("/dubbo/providers")
+    public List<DubboProvider> getProviders(@RequestBody RegistryCenter registry) {
+        return apiTestService.getProviders(registry);
+    }
+
+    @PostMapping("/list/schedule/{goPage}/{pageSize}")
+    public List<ScheduleDao> listSchedule(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryScheduleRequest request) {
+        Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
+        return apiTestService.listSchedule(request);
+    }
+
+    @PostMapping("/list/schedule")
+    public List<ScheduleDao> listSchedule(@RequestBody QueryScheduleRequest request) {
+        return apiTestService.listSchedule(request);
+    }
 }

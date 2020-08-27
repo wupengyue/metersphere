@@ -1,21 +1,17 @@
 <template>
   <span class="adv-search-bar">
     <el-link type="primary" @click="open">{{$t('commons.adv_search.title')}}</el-link>
-    <el-dialog :title="$t('commons.adv_search.combine')" :visible.sync="visible" width="70%">
+    <el-dialog :title="$t('commons.adv_search.combine')" :visible.sync="visible" custom-class="adv-dialog"
+               :append-to-body="true">
       <div>
-<!--        如果有需求再加上-->
-        <!--        <div class="search-label">{{$t('commons.adv_search.combine')}}: </div>-->
-        <!--        <el-select v-model="logic" :placeholder="$t('commons.please_select')" size="small" class="search-combine">-->
-        <!--          <el-option v-for="o in options" :key="o.value" :label="o.label" :value="o.value"/>-->
-        <!--        </el-select>-->
         <div class="search-items">
-          <component class="search-item" v-for="(component, index) in condition.components" :key="index"
+          <component class="search-item" v-for="(component, index) in config.components" :key="index"
                      :is="component.name" :component="component"/>
         </div>
       </div>
       <template v-slot:footer>
         <div class="dialog-footer">
-          <el-button @click="visible = false">{{$t('commons.cancel')}}</el-button>
+          <el-button @click="reset">{{$t('commons.adv_search.reset')}}</el-button>
           <el-button type="primary" @click="search">{{$t('commons.adv_search.search')}}</el-button>
         </div>
       </template>
@@ -25,6 +21,7 @@
 
 <script>
   import components from "./search-components";
+  import {cloneDeep} from "lodash";
 
   export default {
     components: {...components},
@@ -35,33 +32,32 @@
     data() {
       return {
         visible: false,
-        options: [{
-          label: this.$t("commons.adv_search.and"),
-          value: "and"
-        }, {
-          label: this.$t("commons.adv_search.or"),
-          value: "or"
-        }],
-        logic: this.condition.logic || "and"
+        config: this.init()
       }
     },
     methods: {
+      init() {
+        let config = cloneDeep(this.condition);
+        config.components.forEach(component => {
+          let operator = component.operator.value;
+          component.operator.value = operator === undefined ? component.operator.options[0].value : operator;
+        })
+        return config;
+      },
       search() {
-        let condition = {
-          // logic: this.logic // 如果有需求再加上
-        }
-        this.condition.components.forEach(component => {
+        let condition = {}
+        this.config.components.forEach(component => {
           let operator = component.operator.value;
           let value = component.value;
-          if (Array.isArray(component.value)) {
-            if (component.value.length > 0) {
+          if (Array.isArray(value)) {
+            if (value.length > 0) {
               condition[component.key] = {
                 operator: operator,
                 value: value
               }
             }
           } else {
-            if (component.value !== undefined && component.value !== null && component.value !== "") {
+            if (value !== undefined && value !== null && value !== "") {
               condition[component.key] = {
                 operator: operator,
                 value: value
@@ -70,8 +66,28 @@
           }
         });
 
+        // 清除name
+        if (this.condition.name) this.condition.name = undefined;
+        // 添加组合条件
+        this.condition.combine = condition;
+        this.$emit('update:condition', this.condition);
         this.$emit('search', condition);
         this.visible = false;
+      },
+      reset() {
+        let source = this.condition.components;
+        this.config.components.forEach((component, index) => {
+          if (component.operator.value !== undefined) {
+            let operator = source[index].operator.value;
+            component.operator.value = operator === undefined ? component.operator.options[0].value : operator;
+          }
+          if (component.value !== undefined) {
+            component.value = source[index].value;
+          }
+        })
+        this.condition.combine = undefined;
+        this.$emit('update:condition', this.condition);
+        this.$emit('search');
       },
       open() {
         this.visible = true;
@@ -79,6 +95,33 @@
     }
   }
 </script>
+
+<style>
+  @media only screen and (min-width: 1870px) {
+    .el-dialog.adv-dialog {
+      width: 70%;
+    }
+  }
+
+  @media only screen and (min-width: 1650px) and (max-width: 1869px) {
+    .el-dialog.adv-dialog {
+      width: 80%;
+    }
+  }
+
+  @media only screen and (min-width: 1470px) and (max-width: 1649px) {
+    .el-dialog.adv-dialog {
+      width: 90%;
+    }
+  }
+
+  @media only screen and (max-width: 1469px) {
+    .el-dialog.adv-dialog {
+      width: 70%;
+      min-width: 695px;
+    }
+  }
+</style>
 
 <style scoped>
   .adv-search-bar {
@@ -89,25 +132,24 @@
     text-align: center;
   }
 
-  .search-label {
-    display: inline-block;
-    width: 80px;
-    box-sizing: border-box;
-    padding-left: 5px;
-  }
-
-  .search-combine {
-    width: 160px;
-  }
-
   .search-items {
     width: 100%;
   }
 
+  @media only screen and (max-width: 1469px) {
+    .search-item {
+      width: 100%;
+    }
+  }
+
+  @media only screen and (min-width: 1470px) {
+    .search-item {
+      width: 50%;
+    }
+  }
+
   .search-item {
     display: inline-block;
-    width: 50%;
-    max-width: 50%;
     margin-top: 10px;
   }
 </style>

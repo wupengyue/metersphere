@@ -6,25 +6,26 @@
           <el-col :span="16">
             <el-row>
               <el-breadcrumb separator-class="el-icon-arrow-right">
-                <el-breadcrumb-item :to="{ path: '/performance/test/' + this.projectId }">{{projectName}}
+                <el-breadcrumb-item :to="{ path: '/performance/test/' + this.projectId }">{{ projectName }}
                 </el-breadcrumb-item>
-                <el-breadcrumb-item :to="{ path: '/performance/test/edit/' + this.testId }">{{testName}}
+                <el-breadcrumb-item :to="{ path: '/performance/test/edit/' + this.testId }">{{ testName }}
                 </el-breadcrumb-item>
-                <el-breadcrumb-item>{{reportName}}</el-breadcrumb-item>
+                <el-breadcrumb-item>{{ reportName }}</el-breadcrumb-item>
               </el-breadcrumb>
             </el-row>
             <el-row class="ms-report-view-btns">
-              <el-button :disabled="isReadOnly || status !== 'Running'" type="primary" plain size="mini"
-                         @click="stopTest(reportId)">
-                {{$t('report.test_stop_now')}}
+              <el-button :disabled="isReadOnly || report.status !== 'Running'" type="primary" plain size="mini"
+                         @click="dialogFormVisible=true">
+                {{ $t('report.test_stop_now') }}
               </el-button>
-              <el-button :disabled="isReadOnly || status !== 'Completed'" type="success" plain size="mini"
+              <el-button :disabled="isReadOnly || report.status !== 'Completed'" type="success" plain size="mini"
                          @click="rerun(testId)">
-                {{$t('report.test_execute_again')}}
+                {{ $t('report.test_execute_again') }}
               </el-button>
-              <!--<el-button :disabled="isReadOnly" type="info" plain size="mini">
+             <!-- <el-button :disabled="isReadOnly" type="info" plain size="mini" @click="exports(reportName)">
                 {{$t('report.export')}}
-              </el-button>
+              </el-button>-->
+              <!--
               <el-button :disabled="isReadOnly" type="warning" plain size="mini">
                 {{$t('report.compare')}}
               </el-button>-->
@@ -32,36 +33,50 @@
           </el-col>
           <el-col :span="8">
             <span class="ms-report-time-desc">
-              {{$t('report.test_duration', [this.minutes, this.seconds])}}
+              {{ $t('report.test_duration', [this.minutes, this.seconds]) }}
             </span>
             <span class="ms-report-time-desc">
-              {{$t('report.test_start_time')}}：{{startTime}}
+              {{ $t('report.test_start_time') }}：{{ startTime }}
             </span>
             <span class="ms-report-time-desc">
-              {{$t('report.test_end_time')}}：{{endTime}}
+              {{ $t('report.test_end_time') }}：{{ endTime }}
             </span>
           </el-col>
         </el-row>
 
-        <el-divider></el-divider>
+        <el-divider/>
+        <div ref="resume">
+          <el-tabs v-model="active" type="border-card" :stretch="true">
+            <el-tab-pane :label="$t('load_test.pressure_config')">
+              <ms-performance-pressure-config :is-read-only="true" :report="report"/>
+            </el-tab-pane>
+            <el-tab-pane :label="$t('report.test_overview')">
+              <ms-report-test-overview :report="report" ref="testOverview"/>
+            </el-tab-pane>
+            <el-tab-pane :label="$t('report.test_request_statistics')">
+              <ms-report-request-statistics :report="report"/>
+            </el-tab-pane>
+            <el-tab-pane :label="$t('report.test_error_log')">
+              <ms-report-error-log :report="report"/>
+            </el-tab-pane>
+            <el-tab-pane :label="$t('report.test_log_details')">
+              <ms-report-log-details :report="report"/>
+            </el-tab-pane>
+          </el-tabs>
+        </div>
 
-        <el-tabs v-model="active" type="border-card" :stretch="true">
-          <el-tab-pane :label="$t('report.test_overview')">
-            <!--            <ms-report-test-overview :id="reportId" :status="status"/>-->
-            <ms-report-test-overview :report="report"/>
-          </el-tab-pane>
-          <el-tab-pane :label="$t('report.test_request_statistics')">
-            <ms-report-request-statistics :report="report"/>
-          </el-tab-pane>
-          <el-tab-pane :label="$t('report.test_error_log')">
-            <ms-report-error-log :report="report"/>
-          </el-tab-pane>
-          <el-tab-pane :label="$t('report.test_log_details')">
-            <ms-report-log-details :report="report"/>
-          </el-tab-pane>
-        </el-tabs>
 
       </el-card>
+      <el-dialog :title="$t('report.test_stop_now_confirm')" :visible.sync="dialogFormVisible" width="30%">
+        <p v-html="$t('report.force_stop_tips')"/>
+        <p v-html="$t('report.stop_tips')"/>
+        <div slot="footer" class="dialog-footer">
+          <el-button type="danger" size="small" @click="stopTest(true)">{{ $t('report.force_stop_btn') }}
+          </el-button>
+          <el-button type="primary" size="small" @click="stopTest(false)">{{ $t('report.stop_btn') }}
+          </el-button>
+        </div>
+      </el-dialog>
     </ms-main-container>
   </ms-container>
 </template>
@@ -71,9 +86,13 @@
   import MsReportLogDetails from './components/LogDetails';
   import MsReportRequestStatistics from './components/RequestStatistics';
   import MsReportTestOverview from './components/TestOverview';
+  import MsPerformancePressureConfig from "./components/PerformancePressureConfig";
   import MsContainer from "../../common/components/MsContainer";
   import MsMainContainer from "../../common/components/MsMainContainer";
-  import {checkoutTestManagerOrTestUser} from "../../../../common/js/utils";
+
+  import {checkoutTestManagerOrTestUser} from "@/common/js/utils";
+  import writer from "file-writer";
+  import ResumeCss from "../../../../common/css/main.css";
 
   export default {
     name: "PerformanceReportView",
@@ -83,12 +102,13 @@
       MsReportRequestStatistics,
       MsReportTestOverview,
       MsContainer,
-      MsMainContainer
+      MsMainContainer,
+      MsPerformancePressureConfig
     },
     data() {
       return {
         result: {},
-        active: '0',
+        active: '1',
         reportId: '',
         status: '',
         reportName: '',
@@ -103,7 +123,9 @@
         title: 'Logging',
         report: {},
         isReadOnly: false,
-        websocket: null
+        websocket: null,
+        dialogFormVisible: false,
+        testPlan: {testResourcePoolId: null}
       }
     },
     methods: {
@@ -156,7 +178,7 @@
             this.$warning(this.$t('report.generation_error'));
             break;
           case 'Starting':
-            this.$warning(this.$t('report.start_status'));
+            this.$alert(this.$t('report.start_status'));
             break;
           case 'Reporting':
           case 'Running':
@@ -171,18 +193,16 @@
         this.minutes = '0';
         this.seconds = '0';
       },
-      stopTest(reportId) {
-        this.$confirm(this.$t('report.test_stop_now_confirm'), '', {
-          confirmButtonText: this.$t('commons.confirm'),
-          cancelButtonText: this.$t('commons.cancel'),
-          type: 'warning'
-        }).then(() => {
-          this.result = this.$get('/performance/stop/' + reportId, () => {
-            this.$success(this.$t('report.test_stop_success'));
+      stopTest(forceStop) {
+        this.result = this.$get('/performance/stop/' + this.reportId + '/' + forceStop, () => {
+          this.$success(this.$t('report.test_stop_success'));
+          if (forceStop) {
             this.$router.push('/performance/report/all');
-          })
-        }).catch(() => {
+          } else {
+            this.report.status = 'Completed';
+          }
         });
+        this.dialogFormVisible = false;
       },
       rerun(testId) {
         this.$confirm(this.$t('report.test_rerun_confirm'), '', {
@@ -190,26 +210,32 @@
           cancelButtonText: this.$t('commons.cancel'),
           type: 'warning'
         }).then(() => {
-          this.result = this.$post('/performance/run', {id: testId, triggerMode: 'MANUAL'}, () => {
-            this.$success(this.$t('load_test.is_running'))
-            this.$router.push({path: '/performance/report/all'})
+          this.result = this.$post('/performance/run', {id: testId, triggerMode: 'MANUAL'}, (response) => {
+            this.reportId = response.data;
+            this.$router.push({path: '/performance/report/view/' + this.reportId});
+            // 注册 socket
+            this.initWebSocket();
           })
         }).catch(() => {
         });
       },
       onOpen() {
-        window.console.log("open WebSocket");
+        window.console.log("socket opening.");
       },
       onError(e) {
         window.console.error(e)
       },
       onMessage(e) {
         this.$set(this.report, "refresh", e.data); // 触发刷新
+        this.$set(this.report, "status", 'Running');
         this.initReportTimeInfo();
+        window.console.log('receive a message:', e.data);
       },
       onClose(e) {
-        this.$set(this.report, "refresh", e.data); // 触发刷新
+        this.$set(this.report, "refresh", Math.random()); // 触发刷新
+        this.$set(this.report, "status", 'Completed');
         this.initReportTimeInfo();
+        window.console.log("socket closed.");
       }
     },
     created() {
@@ -220,16 +246,23 @@
       this.reportId = this.$route.path.split('/')[4];
       this.result = this.$get("/performance/report/" + this.reportId, res => {
         let data = res.data;
-        this.status = data.status;
-        this.$set(this.report, "id", this.reportId);
-        this.$set(this.report, "status", data.status);
-        this.checkReportStatus(data.status);
-        if (this.status === "Completed" || this.status === "Running") {
-          this.initReportTimeInfo();
+        if (data) {
+          this.status = data.status;
+          this.$set(this.report, "id", this.reportId);
+          this.$set(this.report, "status", data.status);
+          this.$set(this.report, "testId", data.testId);
+          this.$set(this.report, "loadConfiguration", data.loadConfiguration);
+          this.checkReportStatus(data.status);
+          if (this.status === "Completed" || this.status === "Running") {
+            this.initReportTimeInfo();
+          }
+          this.initBreadcrumb();
+          this.initWebSocket();
+        } else {
+          this.$error(this.$t('report.not_exist'))
         }
-      })
-      this.initBreadcrumb();
-      this.initWebSocket();
+      });
+
     },
     beforeDestroy() {
       this.websocket.close() //离开路由之后断开websocket连接
@@ -273,6 +306,8 @@
                 } else {
                   this.clearData();
                 }
+              } else {
+                this.$error(this.$t('report.not_exist'));
               }
             });
 

@@ -7,7 +7,7 @@
                          :create-tip="$t('user.create')" :title="$t('commons.user')"/>
       </template>
 
-      <el-table :data="tableData" style="width: 100%">
+      <el-table border class="adjust-table" :data="tableData" style="width: 100%">
         <el-table-column prop="id" label="ID"/>
         <el-table-column prop="name" :label="$t('commons.name')" width="200"/>
         <el-table-column :label="$t('commons.role')" width="120">
@@ -32,12 +32,13 @@
             <span>{{ scope.row.createTime | timestampFormatDate }}</span>
           </template>
         </el-table-column>
+        <el-table-column prop="source" :label="$t('user.source')"/>
         <el-table-column :label="$t('commons.operating')">
           <template v-slot:default="scope">
             <ms-table-operator @editClick="edit(scope.row)" @deleteClick="del(scope.row)">
               <template v-slot:behind>
                 <ms-table-operator-button :tip="$t('member.edit_password')" icon="el-icon-s-tools"
-                                          type="success" @exec="editPassword(scope.row)"/>
+                                          type="success" @exec="editPassword(scope.row)" v-if="!scope.row.isLdapUser"/>
               </template>
             </ms-table-operator>
           </template>
@@ -163,7 +164,7 @@
 
     <!--Modify user information in system settings-->
     <el-dialog :title="$t('user.modify')" :visible.sync="updateVisible" width="35%" :destroy-on-close="true"
-               @close="handleClose">
+               @close="handleClose" v-loading="result.loading">
       <el-form :model="form" label-position="right" label-width="120px" size="small" :rules="rule" ref="updateUserForm">
         <el-form-item label="ID" prop="id">
           <el-input v-model="form.id" autocomplete="off" :disabled="true"/>
@@ -172,7 +173,7 @@
           <el-input v-model="form.name" autocomplete="off"/>
         </el-form-item>
         <el-form-item :label="$t('commons.email')" prop="email">
-          <el-input v-model="form.email" autocomplete="off"/>
+          <el-input v-model="form.email" autocomplete="off" :disabled="form.source === 'LDAP'"/>
         </el-form-item>
         <el-form-item :label="$t('commons.phone')" prop="phone">
           <el-input v-model="form.phone" autocomplete="off"/>
@@ -267,7 +268,8 @@
       </template>
     </el-dialog>
     <!--Changing user password in system settings-->
-    <el-dialog :title="$t('member.edit_password')" :visible.sync="editPasswordVisible" width="30%" left>
+    <el-dialog :title="$t('member.edit_password')" :visible.sync="editPasswordVisible" width="30%"
+               :destroy-on-close="true" @close="handleClose" left>
       <el-form :model="ruleForm" label-position="right" label-width="120px" size="small" :rules="rule"
                ref="editPasswordForm" class="demo-ruleForm">
         <el-form-item :label="$t('member.new_password')" prop="newpassword">
@@ -294,7 +296,7 @@
   import MsTableOperator from "../../common/components/MsTableOperator";
   import MsDialogFooter from "../../common/components/MsDialogFooter";
   import MsTableOperatorButton from "../../common/components/MsTableOperatorButton";
-  import {getCurrentUser} from "../../../../common/js/utils";
+  import {listenGoBack, removeGoBackListener} from "@/common/js/utils";
   import MsRolesTag from "../../common/components/MsRolesTag";
 
   export default {
@@ -340,7 +342,6 @@
             {min: 2, max: 50, message: this.$t('commons.input_limit', [2, 50]), trigger: 'blur'},
             {
               required: true,
-              pattern: /^[a-zA-Z0-9]+$/,
               message: this.$t('user.special_characters_are_not_supported'),
               trigger: 'blur'
             }
@@ -350,7 +351,6 @@
             {min: 2, max: 50, message: this.$t('commons.input_limit', [2, 50]), trigger: 'blur'},
             {
               required: true,
-              pattern: /^[\u4e00-\u9fa5_a-zA-Z0-9.·-]+$/,
               message: this.$t('user.special_characters_are_not_supported'),
               trigger: 'blur'
             }
@@ -367,7 +367,7 @@
             {required: true, message: this.$t('user.input_email'), trigger: 'blur'},
             {
               required: true,
-              pattern: /^([A-Za-z0-9_\-.])+@([A-Za-z0-9]+\.)+[A-Za-z]{2,6}$/,
+              pattern: /^[a-zA-Z0-9_._-]+@[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)+$/,
               message: this.$t('user.email_format_is_incorrect'),
               trigger: 'blur'
             }
@@ -376,7 +376,7 @@
             {required: true, message: this.$t('user.input_password'), trigger: 'blur'},
             {
               required: true,
-              pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[^]{8,16}$/,
+              pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[^]{8,30}$/,
               message: this.$t('member.password_format_is_incorrect'),
               trigger: 'blur'
             }
@@ -385,7 +385,7 @@
             {required: true, message: this.$t('user.input_password'), trigger: 'blur'},
             {
               required: true,
-              pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[^]{8,16}$/,
+              pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[^]{8,30}$/,
               message: this.$t('member.password_format_is_incorrect'),
               trigger: 'blur'
             }
@@ -402,6 +402,7 @@
         this.createVisible = true;
         this.getOrgList();
         this.getWsList();
+        listenGoBack(this.handleClose);
       },
       edit(row) {
         this.updateVisible = true;
@@ -412,14 +413,18 @@
         this.$get("/workspace/list", response => {
           this.$set(this.form, "wsList", response.data);
         });
-        this.$get('/userrole/all/' + row.id, response => {
-          let data = response.data;
-          this.$set(this.form, "roles", data);
-        });
+        if (row.id) {
+          this.$get('/userrole/all/' + encodeURIComponent(row.id), response => {
+            let data = response.data;
+            this.$set(this.form, "roles", data);
+          });
+        }
+        listenGoBack(this.handleClose);
       },
       editPassword(row) {
         this.editPasswordVisible = true;
         this.ruleForm = Object.assign({}, row);
+        listenGoBack(this.handleClose);
       },
       del(row) {
         this.$confirm(this.$t('user.delete_confirm'), '', {
@@ -427,7 +432,7 @@
           cancelButtonText: this.$t('commons.cancel'),
           type: 'warning'
         }).then(() => {
-          this.result = this.$get(this.deletePath + row.id, () => {
+          this.result = this.$get(this.deletePath + encodeURIComponent(row.id), () => {
             this.$success(this.$t('commons.delete_success'));
             this.search();
           });
@@ -464,7 +469,7 @@
       editUserPassword(editPasswordForm) {
         this.$refs[editPasswordForm].validate(valid => {
           if (valid) {
-            this.result = this.$post(this.editPasswordPath, this.ruleForm, response => {
+            this.result = this.$post(this.editPasswordPath, this.ruleForm, () => {
               this.$success(this.$t('commons.modify_success'));
               this.editPasswordVisible = false;
               this.search();
@@ -482,18 +487,25 @@
           this.tableData = data.listObject;
           let url = "/user/special/user/role";
           for (let i = 0; i < this.tableData.length; i++) {
-            this.$get(url + '/' + this.tableData[i].id, result => {
-              let data = result.data;
-              let roles = data.roles;
-              // let userRoles = result.userRoles;
-              this.$set(this.tableData[i], "roles", roles);
-            });
+            if (this.tableData[i].id) {
+              this.$get(url + '/' + encodeURIComponent(this.tableData[i].id), result => {
+                let data = result.data;
+                let roles = data.roles;
+                // let userRoles = result.userRoles;
+                this.$set(this.tableData[i], "roles", roles);
+                this.$set(this.tableData[i], "isLdapUser", this.tableData[i].source === 'LDAP');
+              });
+            }
           }
         })
       },
       handleClose() {
         this.form = {roles: [{id: ''}]};
         this.btnAddRole = false;
+        removeGoBackListener(this.handleClose);
+        this.editPasswordVisible =  false;
+        this.createVisible =  false;
+        this.updateVisible =  false;
       },
       changeSwitch(row) {
         this.$post('/user/special/update_status', row, () => {

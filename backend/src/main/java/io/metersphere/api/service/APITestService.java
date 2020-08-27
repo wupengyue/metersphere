@@ -1,32 +1,35 @@
 package io.metersphere.api.service;
 
 import com.alibaba.fastjson.JSONObject;
-import io.metersphere.api.dto.APITestResult;
+import io.github.ningyu.jmeter.plugin.dubbo.sample.ProviderService;
+import io.metersphere.api.dto.*;
 import io.metersphere.api.dto.parse.ApiImport;
-import io.metersphere.api.dto.QueryAPITestRequest;
-import io.metersphere.api.dto.SaveAPITestRequest;
+import io.metersphere.api.dto.scenario.request.dubbo.RegistryCenter;
 import io.metersphere.api.jmeter.JMeterService;
 import io.metersphere.api.parse.ApiImportParser;
 import io.metersphere.api.parse.ApiImportParserFactory;
-import io.metersphere.api.parse.MsParser;
+import io.metersphere.api.parse.JmeterDocumentParser;
 import io.metersphere.base.domain.*;
 import io.metersphere.base.mapper.ApiTestFileMapper;
 import io.metersphere.base.mapper.ApiTestMapper;
-import io.metersphere.base.mapper.TestCaseMapper;
 import io.metersphere.base.mapper.ext.ExtApiTestMapper;
 import io.metersphere.commons.constants.APITestStatus;
 import io.metersphere.commons.constants.FileType;
 import io.metersphere.commons.constants.ScheduleGroup;
 import io.metersphere.commons.constants.ScheduleType;
 import io.metersphere.commons.exception.MSException;
-import io.metersphere.commons.utils.BeanUtils;
-import io.metersphere.commons.utils.LogUtil;
-import io.metersphere.commons.utils.ServiceUtils;
-import io.metersphere.commons.utils.SessionUtils;
+import io.metersphere.commons.utils.*;
+import io.metersphere.controller.request.QueryScheduleRequest;
+import io.metersphere.dto.ScheduleDao;
 import io.metersphere.i18n.Translator;
 import io.metersphere.job.sechedule.ApiTestJob;
 import io.metersphere.service.FileService;
+import io.metersphere.service.QuotaService;
 import io.metersphere.service.ScheduleService;
+import io.metersphere.track.service.TestCaseService;
+import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.constants.CommonConstants;
+import org.aspectj.util.FileUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -57,7 +60,9 @@ public class APITestService {
     @Resource
     private ScheduleService scheduleService;
     @Resource
-    private TestCaseMapper testCaseMapper;
+    private TestCaseService testCaseService;
+
+    private static final String BODY_FILE_DIR = "/opt/metersphere/data/body";
 
     public List<APITestResult> list(QueryAPITestRequest request) {
         request.setOrders(ServiceUtils.getDefaultOrder(request.getOrders()));
@@ -69,29 +74,72 @@ public class APITestService {
         return extApiTestMapper.list(request);
     }
 
-    public void create(SaveAPITestRequest request, List<MultipartFile> files) {
-        if (files == null || files.isEmpty()) {
+    public void create(SaveAPITestRequest request, MultipartFile file, List<MultipartFile> bodyFiles) {
+        if (file == null) {
             throw new IllegalArgumentException(Translator.get("file_cannot_be_null"));
         }
+        checkQuota();
+        List<String> bodyUploadIds = new ArrayList<>(request.getBodyUploadIds()) ;
+        request.setBodyUploadIds(null);
         ApiTest test = createTest(request);
-        saveFile(test.getId(), files);
+        createBodyFiles(test, bodyUploadIds, bodyFiles);
+        saveFile(test.getId(), file);
     }
 
-    public void update(SaveAPITestRequest request, List<MultipartFile> files) {
-        if (files == null || files.isEmpty()) {
+    public void update(SaveAPITestRequest request, MultipartFile file, List<MultipartFile> bodyFiles) {
+        if (file == null) {
             throw new IllegalArgumentException(Translator.get("file_cannot_be_null"));
         }
         deleteFileByTestId(request.getId());
+
+        List<String> bodyUploadIds = new ArrayList<>(request.getBodyUploadIds()) ;
+        request.setBodyUploadIds(null);
         ApiTest test = updateTest(request);
-        saveFile(test.getId(), files);
+        createBodyFiles(test, bodyUploadIds, bodyFiles);
+        saveFile(test.getId(), file);
+    }
+
+    private void createBodyFiles(ApiTest test, List<String> bodyUploadIds, List<MultipartFile> bodyFiles) {
+        if (bodyFiles == null || bodyFiles.isEmpty()) {
+
+        }
+        String dir = BODY_FILE_DIR + "/" + test.getId();
+        File testDir = new File(dir);
+        if (!testDir.exists()) {
+            testDir.mkdirs();
+        }
+        for (int i = 0; i < bodyUploadIds.size(); i++) {
+            MultipartFile item = bodyFiles.get(i);
+            File file = new File(testDir + "/" + bodyUploadIds.get(i) + "_" + item.getOriginalFilename());
+            InputStream in = null;
+            OutputStream out = null;
+            try {
+                file.createNewFile();
+                in = item.getInputStream();
+                out = new FileOutputStream(file);
+                FileUtil.copyStream(in, out);
+            } catch (IOException e) {
+                LogUtil.error(e);
+                MSException.throwException(Translator.get("upload_fail"));
+            } finally {
+                try {
+                    in.close();
+                    out.close();
+                } catch (IOException e) {
+                    LogUtil.error(e);
+                    MSException.throwException(Translator.get("upload_fail"));
+                }
+            }
+        }
     }
 
     public void copy(SaveAPITestRequest request) {
-        request.setName(request.getName() + " Copy");
-        try {
-            checkNameExist(request);
-        } catch (Exception e) {
-            request.setName(request.getName() + " " + new Random().nextInt(1000));
+        checkQuota();
+
+        ApiTestExample example = new ApiTestExample();
+        example.createCriteria().andNameEqualTo(request.getName()).andProjectIdEqualTo(request.getProjectId());
+        if (apiTestMapper.countByExample(example) > 0) {
+            MSException.throwException(Translator.get("load_test_already_exists"));
         }
 
         // copy test
@@ -111,42 +159,55 @@ public class APITestService {
             apiTestFile.setFileId(fileMetadata.getId());
             apiTestFileMapper.insert(apiTestFile);
         }
+        copyBodyFiles(copy.getId(), request.getId());
+    }
+
+    public void copyBodyFiles(String target, String source) {
+        String sourceDir = BODY_FILE_DIR + "/" + source;
+        String targetDir = BODY_FILE_DIR + "/" + target;
+        File sourceFile = new File(sourceDir);
+        if (sourceFile.exists()) {
+            try {
+                FileUtil.copyDir(sourceFile, new File(targetDir));
+            } catch (IOException e) {
+                LogUtil.error(e);
+                MSException.throwException(Translator.get("upload_fail"));
+            }
+        }
     }
 
     public APITestResult get(String id) {
         APITestResult apiTest = new APITestResult();
-        BeanUtils.copyBean(apiTest, apiTestMapper.selectByPrimaryKey(id));
-        Schedule schedule = scheduleService.getScheduleByResource(id, ScheduleGroup.API_TEST.name());
-        apiTest.setSchedule(schedule);
-        return apiTest;
+        ApiTest test = apiTestMapper.selectByPrimaryKey(id);
+        if (test != null) {
+            BeanUtils.copyBean(apiTest, test);
+            Schedule schedule = scheduleService.getScheduleByResource(id, ScheduleGroup.API_TEST.name());
+            apiTest.setSchedule(schedule);
+            return apiTest;
+        }
+        return null;
     }
 
-    public ApiTest getApiTestByTestId(String testId) {
-        return apiTestMapper.selectByPrimaryKey(testId);
-    }
 
     public List<ApiTest> getApiTestByProjectId(String projectId) {
         return extApiTestMapper.getApiTestByProjectId(projectId);
     }
 
     public void delete(String testId) {
-
-        // 是否关联测试用例
-        TestCaseExample testCaseExample = new TestCaseExample();
-        testCaseExample.createCriteria().andTestIdEqualTo(testId);
-        List<TestCase> testCases = testCaseMapper.selectByExample(testCaseExample);
-        if (testCases.size() > 0) {
-            String caseName = "";
-            for (int i = 0; i < testCases.size(); i++) {
-                caseName = caseName + testCases.get(i).getName() + ",";
-            }
-            caseName = caseName.substring(0, caseName.length() - 1);
-            MSException.throwException(Translator.get("related_case_del_fail_prefix") + caseName + Translator.get("related_case_del_fail_suffix"));
-        }
-
+        testCaseService.checkIsRelateTest(testId);
         deleteFileByTestId(testId);
         apiReportService.deleteByTestId(testId);
+        scheduleService.deleteByResourceId(testId);
         apiTestMapper.deleteByPrimaryKey(testId);
+        deleteBodyFiles(testId);
+    }
+
+    public void deleteBodyFiles(String testId) {
+        File file = new File(BODY_FILE_DIR + "/" + testId);
+        FileUtil.deleteContents(file);
+        if (file.exists()) {
+            file.delete();
+        }
     }
 
     public String run(SaveAPITestRequest request) {
@@ -155,6 +216,8 @@ public class APITestService {
             MSException.throwException(Translator.get("file_cannot_be_null"));
         }
         byte[] bytes = fileService.loadFileAsBytes(file.getFileId());
+        // 解析 xml 处理 mock 数据
+        bytes = JmeterDocumentParser.parse(bytes);
         InputStream is = new ByteArrayInputStream(bytes);
 
         APITestResult apiTest = get(request.getId());
@@ -164,7 +227,7 @@ public class APITestService {
         String reportId = apiReportService.create(apiTest, request.getTriggerMode());
         changeStatus(request.getId(), APITestStatus.Running);
 
-        jMeterService.run(request.getId(), is);
+        jMeterService.run(request.getId(), null, is);
         return reportId;
     }
 
@@ -181,15 +244,6 @@ public class APITestService {
         if (apiTestMapper.countByExample(example) > 0) {
             MSException.throwException(Translator.get("load_test_already_exists"));
         }
-    }
-
-    private Boolean isNameExist(SaveAPITestRequest request) {
-        ApiTestExample example = new ApiTestExample();
-        example.createCriteria().andNameEqualTo(request.getName()).andProjectIdEqualTo(request.getProjectId()).andIdNotEqualTo(request.getId());
-        if (apiTestMapper.countByExample(example) > 0) {
-            return true;
-        }
-        return false;
     }
 
     private ApiTest updateTest(SaveAPITestRequest request) {
@@ -220,14 +274,12 @@ public class APITestService {
         return test;
     }
 
-    private void saveFile(String testId, List<MultipartFile> files) {
-        files.forEach(file -> {
-            final FileMetadata fileMetadata = fileService.saveFile(file);
-            ApiTestFile apiTestFile = new ApiTestFile();
-            apiTestFile.setTestId(testId);
-            apiTestFile.setFileId(fileMetadata.getId());
-            apiTestFileMapper.insert(apiTestFile);
-        });
+    private void saveFile(String testId, MultipartFile file) {
+        final FileMetadata fileMetadata = fileService.saveFile(file);
+        ApiTestFile apiTestFile = new ApiTestFile();
+        apiTestFile.setTestId(testId);
+        apiTestFile.setFileId(fileMetadata.getId());
+        apiTestFileMapper.insert(apiTestFile);
     }
 
     private void deleteFileByTestId(String testId) {
@@ -276,25 +328,25 @@ public class APITestService {
         scheduleService.addOrUpdateCronJob(request, ApiTestJob.getJobKey(request.getResourceId()), ApiTestJob.getTriggerKey(request.getResourceId()), ApiTestJob.class);
     }
 
-    public ApiTest apiTestImport(MultipartFile file, String platform) {
-        ApiImportParser apiImportParser = ApiImportParserFactory.getApiImportParser(platform);
+    public ApiTest apiTestImport(MultipartFile file, ApiTestImportRequest request) {
+        ApiImportParser apiImportParser = ApiImportParserFactory.getApiImportParser(request.getPlatform());
         ApiImport apiImport = null;
         try {
-            apiImport = apiImportParser.parse(file.getInputStream());
+            apiImport = Objects.requireNonNull(apiImportParser).parse(file == null ? null : file.getInputStream(), request);
         } catch (Exception e) {
             LogUtil.error(e.getMessage(), e);
             MSException.throwException(Translator.get("parse_data_error"));
         }
-        SaveAPITestRequest request = getImportApiTest(file, apiImport);
-        return createTest(request);
+        SaveAPITestRequest saveRequest = getImportApiTest(request, apiImport);
+        return createTest(saveRequest);
     }
 
-    private SaveAPITestRequest getImportApiTest(MultipartFile file, ApiImport apiImport) {
+    private SaveAPITestRequest getImportApiTest(ApiTestImportRequest importRequest, ApiImport apiImport) {
         SaveAPITestRequest request = new SaveAPITestRequest();
-        request.setName(file.getOriginalFilename());
-        request.setProjectId("");
+        request.setName(importRequest.getName());
+        request.setProjectId(importRequest.getProjectId());
         request.setScenarioDefinition(apiImport.getScenarios());
-        request.setUserId(SessionUtils.getUser().getId());
+        request.setUserId(SessionUtils.getUserId());
         request.setId(UUID.randomUUID().toString());
         for (FileType fileType : FileType.values()) {
             String suffix = fileType.suffix();
@@ -303,10 +355,81 @@ public class APITestService {
                 request.setName(name.substring(0, name.length() - suffix.length()));
             }
         }
-        ;
-        if (isNameExist(request)) {
-            request.setName(request.getName() + "_" + request.getId().substring(0, 5));
-        }
         return request;
+    }
+
+    public List<DubboProvider> getProviders(RegistryCenter registry) {
+        ProviderService providerService = ProviderService.get(registry.getAddress());
+        List<String> providers = providerService.getProviders(registry.getProtocol(), registry.getAddress(), registry.getGroup());
+        List<DubboProvider> list = new ArrayList<>();
+        providers.forEach(p -> {
+            DubboProvider provider = new DubboProvider();
+            String[] info = p.split(":");
+            if (info.length > 1) {
+                provider.setVersion(info[1]);
+            }
+            provider.setService(p);
+            provider.setServiceInterface(info[0]);
+            Map<String, URL> services = providerService.findByService(p);
+            if (services != null && !services.isEmpty()) {
+                String[] methods = services.values().stream().findFirst().get().getParameter(CommonConstants.METHODS_KEY).split(",");
+                provider.setMethods(Arrays.asList(methods));
+            } else {
+                provider.setMethods(new ArrayList<>());
+            }
+            list.add(provider);
+        });
+        return list;
+    }
+
+    public List<ScheduleDao> listSchedule(QueryScheduleRequest request) {
+        request.setEnable(true);
+        List<ScheduleDao> schedules = scheduleService.list(request);
+        List<String> resourceIds = schedules.stream()
+                .map(Schedule::getResourceId)
+                .collect(Collectors.toList());
+        if (!resourceIds.isEmpty()) {
+            ApiTestExample example = new ApiTestExample();
+            example.createCriteria().andIdIn(resourceIds);
+            List<ApiTest> apiTests = apiTestMapper.selectByExample(example);
+            Map<String, String> apiTestMap = apiTests.stream().collect(Collectors.toMap(ApiTest::getId, ApiTest::getName));
+            scheduleService.build(apiTestMap, schedules);
+        }
+        return schedules;
+    }
+
+    public String runDebug(SaveAPITestRequest request, MultipartFile file, List<MultipartFile> bodyFiles) {
+        if (file == null) {
+            throw new IllegalArgumentException(Translator.get("file_cannot_be_null"));
+        }
+        updateTest(request);
+        APITestResult apiTest = get(request.getId());
+        List<String> bodyUploadIds = new ArrayList<>(request.getBodyUploadIds()) ;
+        request.setBodyUploadIds(null);
+        createBodyFiles(apiTest, bodyUploadIds, bodyFiles);
+        if (SessionUtils.getUser() == null) {
+            apiTest.setUserId(request.getUserId());
+        }
+        String reportId = apiReportService.createDebugReport(apiTest);
+
+        InputStream is = null;
+        try {
+            byte[] bytes = file.getBytes();
+            // 解析 xml 处理 mock 数据
+            bytes = JmeterDocumentParser.parse(bytes);
+            is = new ByteArrayInputStream(bytes);
+        } catch (IOException e) {
+            LogUtil.error(e);
+        }
+
+        jMeterService.run(request.getId(), reportId, is);
+        return reportId;
+    }
+
+    private void checkQuota() {
+        QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
+        if (quotaService != null) {
+            quotaService.checkAPITestQuota();
+        }
     }
 }

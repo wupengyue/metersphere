@@ -5,7 +5,7 @@
     <el-dialog :title="$t('test_track.plan_view.relevance_test_case')"
                :visible.sync="dialogFormVisible"
                @close="close"
-               width="60%"
+               width="60%" v-loading="result.loading"
                top="50px">
 
       <el-container class="main-content">
@@ -18,19 +18,15 @@
         </el-aside>
 
         <el-container>
-          <el-main class="case-content" v-loading="result.loading">
-            <el-row>
-              <el-col :offset="16" :span="8">
-                <ms-table-search-bar :condition.sync="condition" @change="initData"/>
-              </el-col>
-            </el-row>
+          <el-main class="case-content">
+            <ms-table-header :condition.sync="condition" @search="getCaseNames" title="" :show-create="false"/>
             <el-table
               :data="testCases"
               @filter-change="filter"
               row-key="id"
               @select-all="handleSelectAll"
               @select="handleSelectionChange"
-              height="70vh"
+              height="50vh"
               ref="table">
 
               <el-table-column
@@ -65,6 +61,7 @@
                 </template>
               </el-table-column>
             </el-table>
+            <div style="text-align: center">共 {{testCases.length}} 条</div>
           </el-main>
         </el-container>
       </el-container>
@@ -86,10 +83,21 @@
   import TypeTableItem from "../../../common/tableItems/planview/TypeTableItem";
   import {_filter} from "../../../../../../common/js/utils";
   import MsTableSearchBar from "../../../../common/components/MsTableSearchBar";
+  import MsTableAdvSearchBar from "../../../../common/components/search/MsTableAdvSearchBar";
+  import MsTableHeader from "../../../../common/components/MsTableHeader";
+  import {TEST_CASE_CONFIGS} from "../../../../common/components/search/search-components";
 
   export default {
     name: "TestCaseRelevance",
-    components: {NodeTree, MsDialogFooter, PriorityTableItem, TypeTableItem, MsTableSearchBar},
+    components: {
+      NodeTree,
+      MsDialogFooter,
+      PriorityTableItem,
+      TypeTableItem,
+      MsTableSearchBar,
+      MsTableAdvSearchBar,
+      MsTableHeader
+    },
     data() {
       return {
         result: {},
@@ -100,7 +108,9 @@
         treeNodes: [],
         selectNodeIds: [],
         selectNodeNames: [],
-        condition: {},
+        condition: {
+          components: TEST_CASE_CONFIGS
+        },
         priorityFilters: [
           {text: 'P0', value: 'P0'},
           {text: 'P1', value: 'P1'},
@@ -127,6 +137,9 @@
         this.getCaseNames();
       }
     },
+    updated() {
+      this.toggleSelection(this.testCases);
+    },
     methods: {
       openTestCaseRelevanceDialog() {
         this.initData();
@@ -136,7 +149,7 @@
         let param = {};
         param.planId = this.planId;
         param.testCaseIds = [...this.selectIds];
-        this.$post('/test/plan/relevance', param, () => {
+        this.result = this.$post('/test/plan/relevance', param, () => {
           this.selectIds.clear();
           this.$success(this.$t('commons.save_success'));
           this.dialogFormVisible = false;
@@ -152,6 +165,8 @@
         if (this.selectNodeIds && this.selectNodeIds.length > 0) {
           // param.nodeIds = this.selectNodeIds;
           this.condition.nodeIds = this.selectNodeIds;
+        } else {
+          this.condition.nodeIds = [];
         }
         this.result = this.$post('/test/case/name', this.condition, response => {
           this.testCases = response.data;
@@ -166,7 +181,12 @@
             this.selectIds.add(item.id);
           });
         } else {
-          this.selectIds.clear();
+          // this.selectIds.clear();
+          this.testCases.forEach(item => {
+            if (this.selectIds.has(item.id)) {
+              this.selectIds.delete(item.id);
+            }
+          });
         }
       },
       handleSelectionChange(selection, row) {
@@ -202,6 +222,16 @@
       filter(filters) {
         _filter(filters, this.condition);
         this.initData();
+      },
+      toggleSelection(rows) {
+        rows.forEach(row => {
+          this.selectIds.forEach(id => {
+            if (row.id === id) {
+              // true 是为选中
+              this.$refs.table.toggleRowSelection(row, true)
+            }
+          })
+        })
       },
     }
   }

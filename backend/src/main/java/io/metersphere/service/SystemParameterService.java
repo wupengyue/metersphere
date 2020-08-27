@@ -13,6 +13,7 @@ import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.stereotype.Service;
+
 import javax.annotation.Resource;
 import javax.mail.MessagingException;
 import java.util.*;
@@ -75,8 +76,6 @@ public class SystemParameterService {
         javaMailSender.setUsername(hashMap.get(ParamConstants.MAIL.ACCOUNT.getKey()));
         javaMailSender.setPassword(hashMap.get(ParamConstants.MAIL.PASSWORD.getKey()));
         Properties props = new Properties();
-        props.put("mail.smtp.timeout", "5000");
-        props.put("mail.smtp.connectiontimeout", "5000");
         props.put("mail.smtp.auth", "true");
         if (BooleanUtils.toBoolean(hashMap.get(ParamConstants.MAIL.SSL.getKey()))) {
             props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
@@ -84,6 +83,8 @@ public class SystemParameterService {
         if (BooleanUtils.toBoolean(hashMap.get(ParamConstants.MAIL.TLS.getKey()))) {
             props.put("mail.smtp.starttls.enable", "true");
         }
+        props.put("mail.smtp.timeout", "30000");
+        props.put("mail.smtp.connectiontimeout", "5000");
         javaMailSender.setJavaMailProperties(props);
         try {
             javaMailSender.testConnection();

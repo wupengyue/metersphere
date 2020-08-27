@@ -7,7 +7,7 @@
                            :title="$t('api_report.title')"
                            :show-create="false"/>
         </template>
-        <el-table :data="tableData" class="table-content" @sort-change="sort"
+        <el-table border :data="tableData" class="adjust-table table-content" @sort-change="sort"
                   @filter-change="filter" @row-click="handleView">
           <el-table-column :label="$t('commons.name')" width="200" show-overflow-tooltip prop="name">
           </el-table-column>
@@ -49,113 +49,115 @@
 </template>
 
 <script>
-  import MsTablePagination from "../../common/pagination/TablePagination";
-  import MsTableHeader from "../../common/components/MsTableHeader";
-  import MsContainer from "../../common/components/MsContainer";
-  import MsMainContainer from "../../common/components/MsMainContainer";
-  import MsApiReportStatus from "./ApiReportStatus";
-  import {_filter, _sort} from "../../../../common/js/utils";
-  import MsTableOperatorButton from "../../common/components/MsTableOperatorButton";
-  import ReportTriggerModeItem from "../../common/tableItem/ReportTriggerModeItem";
-  import {getReportConfigs} from "../../common/components/search/search-components";
+import MsTablePagination from "../../common/pagination/TablePagination";
+import MsTableHeader from "../../common/components/MsTableHeader";
+import MsContainer from "../../common/components/MsContainer";
+import MsMainContainer from "../../common/components/MsMainContainer";
+import MsApiReportStatus from "./ApiReportStatus";
+import {_filter, _sort} from "@/common/js/utils";
+import MsTableOperatorButton from "../../common/components/MsTableOperatorButton";
+import ReportTriggerModeItem from "../../common/tableItem/ReportTriggerModeItem";
+import {REPORT_CONFIGS} from "../../common/components/search/search-components";
+import {ApiEvent, LIST_CHANGE} from "@/business/components/common/head/ListEvent";
 
-  export default {
-    components: {
-      ReportTriggerModeItem,
-      MsTableOperatorButton,
-      MsApiReportStatus, MsMainContainer, MsContainer, MsTableHeader, MsTablePagination
-    },
-    data() {
-      return {
-        result: {},
-        condition: {
-          components: getReportConfigs()
-        },
-        tableData: [],
-        multipleSelection: [],
-        currentPage: 1,
-        pageSize: 5,
-        total: 0,
-        loading: false,
-        statusFilters: [
-          {text: 'Saved', value: 'Saved'},
-          {text: 'Starting', value: 'Starting'},
-          {text: 'Running', value: 'Running'},
-          {text: 'Reporting', value: 'Reporting'},
-          {text: 'Completed', value: 'Completed'},
-          {text: 'Error', value: 'Error'}
-        ],
-        triggerFilters: [
-          {text: this.$t('commons.trigger_mode.manual'), value: 'MANUAL'},
-          {text: this.$t('commons.trigger_mode.schedule'), value: 'SCHEDULE'},
-          {text: this.$t('commons.trigger_mode.api'), value: 'API'}
-        ],
-      }
-    },
-
-    watch: {
-      '$route': 'init',
-    },
-
-    methods: {
-      search(combine) {
-        // 只有在点击高级搜索的查询按钮时combine才有值
-        let condition = combine ? {combine: combine} : this.condition;
-        if (this.testId !== 'all') {
-          condition.testId = this.testId;
-        }
-
-        let url = "/api/report/list/" + this.currentPage + "/" + this.pageSize;
-        this.result = this.$post(url, condition, response => {
-          let data = response.data;
-          this.total = data.itemCount;
-          this.tableData = data.listObject;
-        });
+export default {
+  components: {
+    ReportTriggerModeItem,
+    MsTableOperatorButton,
+    MsApiReportStatus, MsMainContainer, MsContainer, MsTableHeader, MsTablePagination
+  },
+  data() {
+    return {
+      result: {},
+      condition: {
+        components: REPORT_CONFIGS
       },
-      handleSelectionChange(val) {
-        this.multipleSelection = val;
-      },
-      handleView(report) {
-        this.$router.push({
-          path: '/api/report/view/' + report.id,
-        })
-      },
-      handleDelete(report) {
-        this.$alert(this.$t('api_report.delete_confirm') + report.name + "？", '', {
-          confirmButtonText: this.$t('commons.confirm'),
-          callback: (action) => {
-            if (action === 'confirm') {
-              this.result = this.$post("/api/report/delete", {id: report.id}, () => {
-                this.$success(this.$t('commons.delete_success'));
-                this.search();
-              });
-            }
-          }
-        });
-      },
-      init() {
-        this.testId = this.$route.params.testId;
-        this.search();
-      },
-      sort(column) {
-        _sort(column, this.condition);
-        this.init();
-      },
-      filter(filters) {
-        _filter(filters, this.condition);
-        this.init();
-      },
-
-    },
-
-    created() {
-      this.init();
+      tableData: [],
+      multipleSelection: [],
+      currentPage: 1,
+      pageSize: 5,
+      total: 0,
+      loading: false,
+      statusFilters: [
+        {text: 'Saved', value: 'Saved'},
+        {text: 'Starting', value: 'Starting'},
+        {text: 'Running', value: 'Running'},
+        {text: 'Reporting', value: 'Reporting'},
+        {text: 'Completed', value: 'Completed'},
+        {text: 'Error', value: 'Error'},
+        {text: 'Success', value: 'Success'},
+      ],
+      triggerFilters: [
+        {text: this.$t('commons.trigger_mode.manual'), value: 'MANUAL'},
+        {text: this.$t('commons.trigger_mode.schedule'), value: 'SCHEDULE'},
+        {text: this.$t('commons.trigger_mode.api'), value: 'API'}
+      ],
     }
+  },
+
+  watch: {
+    '$route': 'init',
+  },
+
+  methods: {
+    search() {
+      if (this.testId !== 'all') {
+        this.condition.testId = this.testId;
+      }
+
+      let url = "/api/report/list/" + this.currentPage + "/" + this.pageSize;
+      this.result = this.$post(url, this.condition, response => {
+        let data = response.data;
+        this.total = data.itemCount;
+        this.tableData = data.listObject;
+      });
+    },
+    handleSelectionChange(val) {
+      this.multipleSelection = val;
+    },
+    handleView(report) {
+      this.$router.push({
+        path: '/api/report/view/' + report.id,
+      })
+    },
+    handleDelete(report) {
+      this.$alert(this.$t('api_report.delete_confirm') + report.name + "？", '', {
+        confirmButtonText: this.$t('commons.confirm'),
+        callback: (action) => {
+          if (action === 'confirm') {
+            this.result = this.$post("/api/report/delete", {id: report.id}, () => {
+              this.$success(this.$t('commons.delete_success'));
+              this.search();
+              // 发送广播，刷新 head 上的最新列表
+              ApiEvent.$emit(LIST_CHANGE);
+            });
+          }
+        }
+      });
+    },
+    init() {
+      this.testId = this.$route.params.testId;
+      this.search();
+    },
+    sort(column) {
+      _sort(column, this.condition);
+      this.init();
+    },
+    filter(filters) {
+      _filter(filters, this.condition);
+      this.init();
+    },
+
+  },
+
+  created() {
+    this.init();
   }
+}
 </script>
 
 <style scoped>
-  .table-content {
-    width: 100%;
-  }
+.table-content {
+  width: 100%;
+}
 </style>

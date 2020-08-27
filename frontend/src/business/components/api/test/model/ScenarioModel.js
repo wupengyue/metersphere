@@ -1,19 +1,26 @@
 import {
-  Element,
-  TestElement,
-  HashTree,
-  TestPlan,
-  ThreadGroup,
-  HeaderManager,
-  HTTPSamplerProxy,
-  HTTPSamplerArguments,
-  Arguments,
+  Arguments, BeanShellPostProcessor, BeanShellPreProcessor,
+  CookieManager,
+  DubboSample,
   DurationAssertion,
+  Element,
+  HashTree,
+  HeaderManager,
+  HTTPSamplerArguments, HTTPsamplerFiles,
+  HTTPSamplerProxy,
+  JSONPathAssertion,
+  JSONPostProcessor,
+  RegexExtractor,
   ResponseCodeAssertion,
   ResponseDataAssertion,
   ResponseHeadersAssertion,
-  RegexExtractor, JSONPostProcessor, XPath2Extractor,
+  TestElement,
+  TestPlan,
+  ThreadGroup,
+  XPath2Extractor,
 } from "./JMX";
+import Mock from "mockjs";
+import {funcFilters} from "@/common/js/func-filter";
 
 export const uuid = function () {
   let d = new Date().getTime()
@@ -31,15 +38,54 @@ export const uuid = function () {
   });
 }
 
+export const BODY_FILE_DIR = "/opt/metersphere/data/body"; //存放body文件上传目录
+
+export const calculate = function (itemValue) {
+  if (!itemValue) {
+    return;
+  }
+  try {
+    if (itemValue.trim().startsWith("${")) {
+      // jmeter 内置函数不做处理
+      return itemValue;
+    }
+    let funcs = itemValue.split("|");
+    let value = Mock.mock(funcs[0].trim());
+    if (funcs.length === 1) {
+      return value;
+    }
+    for (let i = 1; i < funcs.length; i++) {
+      let func = funcs[i].trim();
+      let args = func.split(":");
+      let strings = [];
+      if (args[1]) {
+        strings = args[1].split(",");
+      }
+      value = funcFilters[args[0].trim()](value, ...strings);
+    }
+    return value;
+  } catch (e) {
+    return itemValue;
+  }
+}
+
 export const BODY_TYPE = {
   KV: "KeyValue",
   FORM_DATA: "Form Data",
   RAW: "Raw"
 }
 
+export const BODY_FORMAT = {
+  TEXT: "text",
+  JSON: "json",
+  XML: "xml",
+  HTML: "html",
+}
+
 export const ASSERTION_TYPE = {
   TEXT: "Text",
   REGEX: "Regex",
+  JSON_PATH: "JSON",
   DURATION: "Duration"
 }
 
@@ -74,7 +120,7 @@ export class BaseConfig {
     if (types) {
       for (let name in types) {
         if (types.hasOwnProperty(name) && options.hasOwnProperty(name)) {
-          options[name].forEach((o) => {
+          options[name].forEach(o => {
             this[name].push(new types[name](o));
           })
         }
@@ -95,7 +141,7 @@ export class Test extends BaseConfig {
   constructor(options) {
     super();
     this.type = "MS API CONFIG";
-    this.version = '1.0.0';
+    this.version = '1.1.0';
     this.id = uuid();
     this.name = undefined;
     this.projectId = undefined;
@@ -124,11 +170,23 @@ export class Test extends BaseConfig {
 
   isValid() {
     for (let i = 0; i < this.scenarioDefinition.length; i++) {
-      if (this.scenarioDefinition[i].isValid()) {
-        return this.projectId && this.name;
+      let validator = this.scenarioDefinition[i].isValid();
+      if (!validator.isValid) {
+        return validator;
       }
     }
-    return false;
+    if (!this.projectId) {
+      return {
+        isValid: false,
+        info: 'api_test.select_project'
+      }
+    } else if (!this.name) {
+      return {
+        isValid: false,
+        info: 'api_test.input_name'
+      }
+    }
+    return {isValid: true};
   }
 
   toJMX() {
@@ -140,7 +198,7 @@ export class Test extends BaseConfig {
 }
 
 export class Scenario extends BaseConfig {
-  constructor(options) {
+  constructor(options = {}) {
     super();
     this.name = undefined;
     this.url = undefined;
@@ -148,14 +206,19 @@ export class Scenario extends BaseConfig {
     this.headers = [];
     this.requests = [];
     this.environmentId = undefined;
+    this.dubboConfig = undefined;
+    this.environment = undefined;
+    this.enableCookieShare = false;
+    this.enable = true;
 
     this.set(options);
-    this.sets({variables: KeyValue, headers: KeyValue, requests: Request}, options);
+    this.sets({variables: KeyValue, headers: KeyValue, requests: RequestFactory}, options);
   }
 
   initOptions(options) {
     options = options || {};
-    options.requests = options.requests || [new Request()];
+    options.requests = options.requests || [new RequestFactory()];
+    options.dubboConfig = new DubboConfig(options.dubboConfig);
     return options;
   }
 
@@ -164,21 +227,74 @@ export class Scenario extends BaseConfig {
   }
 
   isValid() {
-    for (let i = 0; i < this.requests.length; i++) {
-      if (!this.requests[i].isValid()) {
-        return false;
+    if (this.enable) {
+      for (let i = 0; i < this.requests.length; i++) {
+        let validator = this.requests[i].isValid(this.environmentId);
+        if (!validator.isValid) {
+          return validator;
+        }
       }
     }
-    if (!this.name) {
-      return false;
+    return {isValid: true};
+  }
+}
+
+class DubboConfig extends BaseConfig {
+  constructor(options = {}) {
+    super();
+    this.configCenter = new ConfigCenter(options.configCenter)
+    this.registryCenter = new RegistryCenter(options.registryCenter)
+    if (options.consumerAndService === undefined) {
+      options.consumerAndService = {
+        timeout: undefined,
+        version: undefined,
+        retries: undefined,
+        cluster: undefined,
+        group: undefined,
+        connections: undefined,
+        async: undefined,
+        loadBalance: undefined
+      }
     }
-    return true;
+    this.consumerAndService = new ConsumerAndService(options.consumerAndService)
+  }
+}
+
+export class RequestFactory {
+  static TYPES = {
+    HTTP: "HTTP",
+    DUBBO: "DUBBO",
+  }
+
+  constructor(options = {}) {
+    options.type = options.type || RequestFactory.TYPES.HTTP
+    switch (options.type) {
+      case RequestFactory.TYPES.DUBBO:
+        return new DubboRequest(options);
+      default:
+        return new HttpRequest(options);
+    }
   }
 }
 
 export class Request extends BaseConfig {
-  constructor(options) {
+  constructor(type) {
     super();
+    this.type = type;
+  }
+
+  showType() {
+    return this.type;
+  }
+
+  showMethod() {
+    return "";
+  }
+}
+
+export class HttpRequest extends Request {
+  constructor(options) {
+    super(RequestFactory.TYPES.HTTP);
     this.name = undefined;
     this.url = undefined;
     this.path = undefined;
@@ -190,6 +306,12 @@ export class Request extends BaseConfig {
     this.extract = undefined;
     this.environment = undefined;
     this.useEnvironment = undefined;
+    this.debugReport = undefined;
+    this.beanShellPreProcessor = undefined;
+    this.beanShellPostProcessor = undefined;
+    this.enable = true;
+    this.connectTimeout = 60*1000;
+    this.responseTimeout = undefined;
 
     this.set(options);
     this.sets({parameters: KeyValue, headers: KeyValue}, options);
@@ -201,11 +323,188 @@ export class Request extends BaseConfig {
     options.body = new Body(options.body);
     options.assertions = new Assertions(options.assertions);
     options.extract = new Extract(options.extract);
+    options.beanShellPreProcessor = new BeanShellProcessor(options.beanShellPreProcessor);
+    options.beanShellPostProcessor = new BeanShellProcessor(options.beanShellPostProcessor);
     return options;
   }
 
+  isValid(environmentId) {
+    if (this.enable) {
+      if (this.useEnvironment) {
+        if (!environmentId) {
+          return {
+            isValid: false,
+            info: 'api_test.request.please_configure_environment_in_scenario'
+          }
+        }
+      } else {
+        if (!this.url) {
+          return {
+            isValid: false,
+            info: 'api_test.request.input_url'
+          }
+        }
+        try {
+          new URL(this.url)
+        } catch (e) {
+          return {
+            isValid: false,
+            info: 'api_test.request.url_invalid'
+          }
+        }
+      }
+    }
+    return {
+      isValid: true
+    }
+  }
+
+  showType() {
+    return this.type;
+  }
+
+  showMethod() {
+    return this.method.toUpperCase();
+  }
+
+}
+
+export class DubboRequest extends Request {
+  static PROTOCOLS = {
+    DUBBO: "dubbo://",
+    RMI: "rmi://",
+  }
+
+  constructor(options = {}) {
+    super(RequestFactory.TYPES.DUBBO);
+    this.name = options.name;
+    this.protocol = options.protocol || DubboRequest.PROTOCOLS.DUBBO;
+    this.interface = options.interface;
+    this.method = options.method;
+    this.configCenter = new ConfigCenter(options.configCenter);
+    this.registryCenter = new RegistryCenter(options.registryCenter);
+    this.consumerAndService = new ConsumerAndService(options.consumerAndService);
+    this.args = [];
+    this.attachmentArgs = [];
+    this.assertions = new Assertions(options.assertions);
+    this.extract = new Extract(options.extract);
+    // Scenario.dubboConfig
+    this.dubboConfig = undefined;
+    this.debugReport = undefined;
+    this.beanShellPreProcessor = new BeanShellProcessor(options.beanShellPreProcessor);
+    this.beanShellPostProcessor = new BeanShellProcessor(options.beanShellPostProcessor);
+    this.enable = true;
+
+    this.sets({args: KeyValue, attachmentArgs: KeyValue}, options);
+  }
+
   isValid() {
-    return ((!this.useEnvironment && !!this.url) || (this.useEnvironment && !!this.path && this.environment)) && !!this.method
+    if (this.enable) {
+      if (!this.interface) {
+        return {
+          isValid: false,
+          info: 'api_test.request.dubbo.input_interface'
+        }
+      }
+      if (!this.method) {
+        return {
+          isValid: false,
+          info: 'api_test.request.dubbo.input_method'
+        }
+      }
+      if (!this.registryCenter.isValid()) {
+        return {
+          isValid: false,
+          info: 'api_test.request.dubbo.input_registry_center'
+        }
+      }
+      if (!this.consumerAndService.isValid()) {
+        return {
+          isValid: false,
+          info: 'api_test.request.dubbo.input_consumer_service'
+        }
+      }
+    }
+    return {
+      isValid: true
+    }
+  }
+
+  showType() {
+    return "RPC";
+  }
+
+  showMethod() {
+    // dubbo:// -> DUBBO
+    return this.protocol.substr(0, this.protocol.length - 3).toUpperCase();
+  }
+
+  clone() {
+    return new DubboRequest(this);
+  }
+}
+
+export class ConfigCenter extends BaseConfig {
+  static PROTOCOLS = ["zookeeper", "nacos", "apollo"];
+
+  constructor(options) {
+    super();
+    this.protocol = undefined;
+    this.group = undefined;
+    this.namespace = undefined;
+    this.username = undefined;
+    this.address = undefined;
+    this.password = undefined;
+    this.timeout = undefined;
+
+    this.set(options);
+  }
+
+  isValid() {
+    return !!this.protocol || !!this.group || !!this.namespace || !!this.username || !!this.address || !!this.password || !!this.timeout;
+  }
+}
+
+export class RegistryCenter extends BaseConfig {
+  static PROTOCOLS = ["none", "zookeeper", "nacos", "apollo", "multicast", "redis", "simple"];
+
+  constructor(options) {
+    super();
+    this.protocol = undefined;
+    this.group = undefined;
+    this.username = undefined;
+    this.address = undefined;
+    this.password = undefined;
+    this.timeout = undefined;
+
+    this.set(options);
+  }
+
+  isValid() {
+    return !!this.protocol || !!this.group || !!this.username || !!this.address || !!this.password || !!this.timeout;
+  }
+}
+
+export class ConsumerAndService extends BaseConfig {
+  static ASYNC_OPTIONS = ["sync", "async"];
+  static LOAD_BALANCE_OPTIONS = ["random", "roundrobin", "leastactive", "consistenthash"];
+
+  constructor(options) {
+    super();
+    this.timeout = "1000";
+    this.version = "1.0";
+    this.retries = "0";
+    this.cluster = "failfast";
+    this.group = undefined;
+    this.connections = "100";
+    this.async = "sync";
+    this.loadBalance = "random";
+
+    this.set(options);
+  }
+
+  isValid() {
+    return !!this.timeout || !!this.version || !!this.retries || !!this.cluster || !!this.group || !!this.connections || !!this.async || !!this.loadBalance;
   }
 }
 
@@ -237,7 +536,7 @@ export class Body extends BaseConfig {
 
 export class KeyValue extends BaseConfig {
   constructor() {
-    let options, key, value;
+    let options, key, value, type;
     if (arguments.length === 1) {
       options = arguments[0];
     }
@@ -246,16 +545,27 @@ export class KeyValue extends BaseConfig {
       key = arguments[0];
       value = arguments[1];
     }
+    if (arguments.length === 3) {
+      key = arguments[0];
+      value = arguments[1];
+      type = arguments[2];
+    }
 
     super();
     this.name = key;
     this.value = value;
+    this.type = type;
+    this.files = undefined;
 
     this.set(options);
   }
 
   isValid() {
-    return !!this.name || !!this.value;
+    return (!!this.name || !!this.value) && this.type !== 'file';
+  }
+
+  isFile() {
+    return (!!this.name || !!this.value) && this.type === 'file';
   }
 }
 
@@ -264,10 +574,11 @@ export class Assertions extends BaseConfig {
     super();
     this.text = [];
     this.regex = [];
+    this.jsonPath = [];
     this.duration = undefined;
 
     this.set(options);
-    this.sets({text: Text, regex: Regex}, options);
+    this.sets({text: Text, regex: Regex, jsonPath: JSONPath}, options);
   }
 
   initOptions(options) {
@@ -281,6 +592,14 @@ export class AssertionType extends BaseConfig {
   constructor(type) {
     super();
     this.type = type;
+  }
+}
+
+export class BeanShellProcessor extends BaseConfig {
+  constructor(options) {
+    super();
+    this.script = undefined;
+    this.set(options);
   }
 }
 
@@ -307,6 +626,21 @@ export class Regex extends AssertionType {
 
   isValid() {
     return !!this.subject && !!this.expression;
+  }
+}
+
+export class JSONPath extends AssertionType {
+  constructor(options) {
+    super(ASSERTION_TYPE.JSON_PATH);
+    this.expression = undefined;
+    this.expect = undefined;
+    this.description = undefined;
+
+    this.set(options);
+  }
+
+  isValid() {
+    return !!this.expression;
   }
 }
 
@@ -392,26 +726,82 @@ const JMX_ASSERTION_CONDITION = {
   OR: 1 << 5
 }
 
-class JMXRequest {
-  constructor(request) {
-    if (request && request instanceof Request && request.url) {
-      let url = new URL(request.url);
-      this.method = request.method;
-      this.hostname = decodeURIComponent(url.hostname);
-      this.pathname = decodeURIComponent(url.pathname);
-      this.path = decodeURIComponent(request.path);
+class JMXHttpRequest {
+  constructor(request, environment) {
+    if (request && request instanceof HttpRequest) {
       this.useEnvironment = request.useEnvironment;
-      this.environment = request.environment;
-      this.port = url.port;
-      this.protocol = url.protocol.split(":")[0];
-      if (this.method.toUpperCase() !== "GET") {
-        // this.pathname += url.search.replace('&', '&amp;');
-        this.pathname += '?';
-        request.parameters.forEach(parameter => {
-          if (parameter.name) {
-            this.pathname += (parameter.name + '=' + parameter.value + '&');
-          }
-        });
+      this.method = request.method;
+      if (!request.useEnvironment) {
+        if (!request.url.startsWith("http://") && !request.url.startsWith("https://")) {
+          request.url = 'http://' + request.url;
+        }
+        let url = new URL(request.url);
+        this.domain = decodeURIComponent(url.hostname);
+        this.port = url.port;
+        this.protocol = url.protocol.split(":")[0];
+        this.path = this.getPostQueryParameters(request, decodeURIComponent(url.pathname));
+      } else {
+        this.domain = environment.domain;
+        this.port = environment.port;
+        this.protocol = environment.protocol;
+        let url = new URL(environment.protocol + "://" + environment.socket);
+        this.path = this.getPostQueryParameters(request, decodeURIComponent(url.pathname + (request.path ? request.path : '')));
+      }
+      this.connectTimeout = request.connectTimeout;
+      this.responseTimeout = request.responseTimeout;
+
+    }
+  }
+
+  getPostQueryParameters(request, path) {
+    if (this.method.toUpperCase() !== "GET") {
+      let parameters = [];
+      request.parameters.forEach(parameter => {
+        if (parameter.name && parameter.value) {
+          parameters.push(parameter);
+        }
+      });
+      if (parameters.length > 0) {
+        path += '?';
+      }
+      for (let i = 0; i < parameters.length; i++) {
+        let parameter = parameters[i];
+        path += (parameter.name + '=' + parameter.value);
+        if (i !== parameters.length - 1) {
+          path += '&';
+        }
+      }
+    }
+    return path;
+  }
+}
+
+class JMXDubboRequest {
+  constructor(request, dubboConfig) {
+    // Request 复制
+    let obj = request.clone();
+    // 去掉无效的kv
+    obj.args = obj.args.filter(arg => {
+      return arg.isValid();
+    });
+    obj.attachmentArgs = obj.attachmentArgs.filter(arg => {
+      return arg.isValid();
+    });
+
+    // Scenario DubboConfig复制
+    this.copy(obj.configCenter, dubboConfig.configCenter);
+    this.copy(obj.registryCenter, dubboConfig.registryCenter);
+    this.copy(obj.consumerAndService, dubboConfig.consumerAndService);
+
+    return obj;
+  }
+
+  copy(target, source) {
+    for (let key in source) {
+      if (source.hasOwnProperty(key)) {
+        if (source[key] !== undefined && !target[key]) {
+          target[key] = source[key];
+        }
       }
     }
   }
@@ -438,62 +828,81 @@ class JMXGenerator {
     if (!test || !test.id || !(test instanceof Test)) return undefined;
 
     let testPlan = new TestPlan(test.name);
-    this.addScenarios(testPlan, test.scenarioDefinition);
+    this.addScenarios(testPlan, test.id, test.scenarioDefinition);
 
     this.jmeterTestPlan = new JMeterTestPlan();
     this.jmeterTestPlan.put(testPlan);
   }
 
-  addScenarios(testPlan, scenarios) {
+  addScenarios(testPlan, testId, scenarios) {
     scenarios.forEach(s => {
-      let scenario = s.clone();
 
-      let threadGroup = new ThreadGroup(scenario.name || "");
+      if (s.enable) {
+        let scenario = s.clone();
 
-      this.addScenarioVariables(threadGroup, scenario);
+        let threadGroup = new ThreadGroup(scenario.name || "");
 
-      this.addScenarioHeaders(threadGroup, scenario);
+        this.addScenarioVariables(threadGroup, scenario);
 
-      scenario.requests.forEach(request => {
-        if (!request.isValid()) return;
+        this.addScenarioHeaders(threadGroup, scenario);
 
-        let httpSamplerProxy = new HTTPSamplerProxy(request.name || "", new JMXRequest(request));
+        this.addScenarioCookieManager(threadGroup, scenario);
 
-        this.addRequestHeader(httpSamplerProxy, request);
+        scenario.requests.forEach(request => {
+          if (request.enable) {
+            if (!request.isValid()) return;
+            let sampler;
 
-        if (request.method.toUpperCase() === 'GET') {
-          this.addRequestArguments(httpSamplerProxy, request);
-        } else {
-          this.addRequestBody(httpSamplerProxy, request);
-        }
+            if (request instanceof DubboRequest) {
+              sampler = new DubboSample(request.name || "", new JMXDubboRequest(request, scenario.dubboConfig));
+            }
 
-        this.addRequestAssertion(httpSamplerProxy, request);
+            if (request instanceof HttpRequest) {
+              sampler = new HTTPSamplerProxy(request.name || "", new JMXHttpRequest(request, scenario.environment));
+              this.addRequestHeader(sampler, request);
+              if (request.method.toUpperCase() === 'GET') {
+                this.addRequestArguments(sampler, request);
+              } else {
+                this.addRequestBody(sampler, request, testId);
+              }
+            }
 
-        this.addRequestExtractor(httpSamplerProxy, request);
+            this.addBeanShellProcessor(sampler, request);
 
-        threadGroup.put(httpSamplerProxy);
-      })
+            this.addRequestAssertion(sampler, request);
 
-      testPlan.put(threadGroup);
+            this.addRequestExtractor(sampler, request);
+
+            threadGroup.put(sampler);
+          }
+        })
+
+        testPlan.put(threadGroup);
+      }
+
     })
   }
 
-  addScenarioVariables(threadGroup, scenario) {
-    let scenarioVariableKeys = new Set();
-    scenario.variables.forEach(item => {
-      scenarioVariableKeys.add(item.name);
+  addEnvironments(environments, target) {
+    let keys = new Set();
+    target.forEach(item => {
+      keys.add(item.name);
     });
+    let envArray = environments;
+    if (!(envArray instanceof Array)) {
+      envArray = JSON.parse(environments);
+      envArray.forEach(item => {
+        if (item.name && !keys.has(item.name)) {
+          target.push(new KeyValue(item.name, item.value));
+        }
+      })
+    }
+  }
+
+  addScenarioVariables(threadGroup, scenario) {
     let environment = scenario.environment;
     if (environment) {
-      let envVariables = environment.variables;
-      if (!(envVariables instanceof Array)) {
-        envVariables = JSON.parse(environment.variables);
-        envVariables.forEach(item => {
-          if (item.name && !scenarioVariableKeys.has(item.name)) {
-            scenario.variables.push(new KeyValue(item.name, item.value));
-          }
-        })
-      }
+      this.addEnvironments(environment.variables, scenario.variables)
     }
     let args = this.filterKV(scenario.variables);
     if (args.length > 0) {
@@ -502,22 +911,16 @@ class JMXGenerator {
     }
   }
 
+  addScenarioCookieManager(threadGroup, scenario) {
+    if (scenario.enableCookieShare) {
+      threadGroup.put(new CookieManager(scenario.name));
+    }
+  }
+
   addScenarioHeaders(threadGroup, scenario) {
-    let scenarioHeaderKeys = new Set();
-    scenario.headers.forEach(item => {
-      scenarioHeaderKeys.add(item.name);
-    });
     let environment = scenario.environment;
     if (environment) {
-      let envHeaders = environment.headers;
-      if (!(envHeaders instanceof Array)) {
-        envHeaders = JSON.parse(environment.headers);
-        envHeaders.forEach(item => {
-          if (item.name && !scenarioHeaderKeys.has(item.name)) {
-            scenario.headers.push(new KeyValue(item.name, item.value));
-          }
-        })
-      }
+      this.addEnvironments(environment.headers, scenario.headers)
     }
     let headers = this.filterKV(scenario.headers);
     if (headers.length > 0) {
@@ -528,10 +931,52 @@ class JMXGenerator {
 
   addRequestHeader(httpSamplerProxy, request) {
     let name = request.name + " Headers";
+    this.addBodyFormat(request);
     let headers = this.filterKV(request.headers);
     if (headers.length > 0) {
       httpSamplerProxy.put(new HeaderManager(name, headers));
     }
+  }
+
+  addBeanShellProcessor(sampler, request) {
+    let name = request.name;
+    if (request.beanShellPreProcessor && request.beanShellPreProcessor.script) {
+      sampler.put(new BeanShellPreProcessor(name, request.beanShellPreProcessor));
+    }
+    if (request.beanShellPostProcessor && request.beanShellPostProcessor.script) {
+      sampler.put(new BeanShellPostProcessor(name, request.beanShellPostProcessor));
+    }
+  }
+
+  addBodyFormat(request) {
+    let bodyFormat = request.body.format;
+    if (!request.body.isKV() && bodyFormat) {
+      switch (bodyFormat) {
+        case BODY_FORMAT.JSON:
+          this.addContentType(request, 'application/json');
+          break;
+        case BODY_FORMAT.HTML:
+          this.addContentType(request, 'text/html');
+          break;
+        case BODY_FORMAT.XML:
+          this.addContentType(request, 'text/xml');
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  addContentType(request, type) {
+    for (let index in request.headers) {
+      if (request.headers.hasOwnProperty(index)) {
+        if (request.headers[index].name === 'Content-Type') {
+          request.headers.splice(index, 1);
+          break;
+        }
+      }
+    }
+    request.headers.push(new KeyValue('Content-Type', type));
   }
 
   addRequestArguments(httpSamplerProxy, request) {
@@ -541,10 +986,11 @@ class JMXGenerator {
     }
   }
 
-  addRequestBody(httpSamplerProxy, request) {
+  addRequestBody(httpSamplerProxy, request, testId) {
     let body = [];
     if (request.body.isKV()) {
       body = this.filterKV(request.body.kvs);
+      this.addRequestBodyFile(httpSamplerProxy, request, testId);
     } else {
       httpSamplerProxy.boolProp('HTTPSampler.postBodyRaw', true);
       body.push({name: '', value: request.body.raw, encode: false});
@@ -553,11 +999,33 @@ class JMXGenerator {
     httpSamplerProxy.add(new HTTPSamplerArguments(body));
   }
 
+  addRequestBodyFile(httpSamplerProxy, request, testId) {
+    let files = [];
+    let kvs = this.filterKVFile(request.body.kvs);
+    kvs.forEach(kv => {
+      if (kv.files) {
+        kv.files.forEach(file => {
+          let arg = {};
+          arg.name = kv.name;
+          arg.value = BODY_FILE_DIR + '/' + testId + '/' + file.id + '_' + file.name;
+          files.push(arg);
+        });
+      }
+    });
+    httpSamplerProxy.add(new HTTPsamplerFiles(files));
+  }
+
   addRequestAssertion(httpSamplerProxy, request) {
     let assertions = request.assertions;
     if (assertions.regex.length > 0) {
       assertions.regex.filter(this.filter).forEach(regex => {
-        httpSamplerProxy.put(this.getAssertion(regex));
+        httpSamplerProxy.put(this.getResponseAssertion(regex));
+      })
+    }
+
+    if (assertions.jsonPath.length > 0) {
+      assertions.jsonPath.filter(this.filter).forEach(item => {
+        httpSamplerProxy.put(this.getJSONPathAssertion(item));
       })
     }
 
@@ -567,7 +1035,12 @@ class JMXGenerator {
     }
   }
 
-  getAssertion(regex) {
+  getJSONPathAssertion(jsonPath) {
+    let name = jsonPath.description;
+    return new JSONPathAssertion(name, jsonPath);
+  }
+
+  getResponseAssertion(regex) {
     let name = regex.description;
     let type = JMX_ASSERTION_CONDITION.CONTAINS; // 固定用Match，自己写正则
     let value = regex.expression;
@@ -629,6 +1102,12 @@ class JMXGenerator {
 
   filterKV(kvs) {
     return kvs.filter(this.filter);
+  }
+
+  filterKVFile(kvs) {
+    return kvs.filter(kv => {
+      return kv.isFile();
+    });
   }
 
   toXML() {

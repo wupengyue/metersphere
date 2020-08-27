@@ -78,8 +78,18 @@ public class UserService {
         return getUserDTO(user.getId());
     }
 
-    public User selectUser(String id) {
-        return userMapper.selectByPrimaryKey(id);
+    public User selectUser(String userId, String email) {
+        User user = userMapper.selectByPrimaryKey(userId);
+        if (user == null) {
+            UserExample example = new UserExample();
+            example.createCriteria().andEmailEqualTo(email);
+            List<User> users = userMapper.selectByExample(example);
+            if (!CollectionUtils.isEmpty(users)) {
+                return users.get(0);
+            }
+        }
+        return user;
+
     }
 
     private void insertUserRole(List<Map<String, Object>> roles, String userId) {
@@ -138,17 +148,40 @@ public class UserService {
         user.setUpdateTime(System.currentTimeMillis());
         // 默认1:启用状态
         user.setStatus(UserStatus.NORMAL);
-        user.setSource(UserSource.Local.name());
+        user.setSource(UserSource.LOCAL.name());
         // 密码使用 MD5
         user.setPassword(CodingUtil.md5(user.getPassword()));
+        checkEmailIsExist(user.getEmail());
+        userMapper.insertSelective(user);
+    }
+
+    public void addLdapUser(User user) {
+        user.setCreateTime(System.currentTimeMillis());
+        user.setUpdateTime(System.currentTimeMillis());
+        user.setStatus(UserStatus.NORMAL);
+        checkEmailIsExist(user.getEmail());
+        userMapper.insertSelective(user);
+    }
+
+    public void createOssUser(User user) {
+        user.setCreateTime(System.currentTimeMillis());
+        user.setUpdateTime(System.currentTimeMillis());
+        user.setStatus(UserStatus.NORMAL);
+        if (StringUtils.isBlank(user.getEmail())) {
+            user.setEmail(user.getId() + "@metershpere.io");
+        }
+        userMapper.insertSelective(user);
+    }
+
+
+    private void checkEmailIsExist(String email) {
         UserExample userExample = new UserExample();
         UserExample.Criteria criteria = userExample.createCriteria();
-        criteria.andEmailEqualTo(user.getEmail());
+        criteria.andEmailEqualTo(email);
         List<User> userList = userMapper.selectByExample(userExample);
         if (!CollectionUtils.isEmpty(userList)) {
             MSException.throwException(Translator.get("user_email_already_exists"));
         }
-        userMapper.insertSelective(user);
     }
 
     public UserDTO getUserDTO(String userId) {
@@ -168,13 +201,30 @@ public class UserService {
         return userDTO;
     }
 
-    public UserDTO getUserDTOByEmail(String email) {
+    public UserDTO getLoginUser(String userId, List<String> list) {
         UserExample example = new UserExample();
-        example.createCriteria().andEmailEqualTo(email);
+        example.createCriteria().andIdEqualTo(userId).andSourceIn(list);
+        if (userMapper.countByExample(example) == 0) {
+            return null;
+        }
+        return getUserDTO(userId);
+    }
+
+    public UserDTO getUserDTOByEmail(String email, String... source) {
+        UserExample example = new UserExample();
+        UserExample.Criteria criteria = example.createCriteria();
+        criteria.andEmailEqualTo(email);
+
+        if (!CollectionUtils.isEmpty(Arrays.asList(source))) {
+            criteria.andSourceIn(Arrays.asList(source));
+        }
+
         List<User> users = userMapper.selectByExample(example);
+
         if (users == null || users.size() <= 0) {
             return null;
         }
+
         return getUserDTO(users.get(0).getId());
     }
 
@@ -343,7 +393,7 @@ public class UserService {
                 userRoleExample.createCriteria().andUserIdEqualTo(userId).andSourceIdEqualTo(request.getOrganizationId());
                 List<UserRole> userRoles = userRoleMapper.selectByExample(userRoleExample);
                 if (userRoles.size() > 0) {
-                    MSException.throwException(Translator.get("user_already_exists"));
+                    MSException.throwException(Translator.get("user_already_exists") + ": " + userId);
                 } else {
                     for (String roleId : request.getRoleIds()) {
                         UserRole userRole = new UserRole();
@@ -475,11 +525,15 @@ public class UserService {
     }
 
     public ResultHolder login(LoginRequest request) {
+        String login = (String) SecurityUtils.getSubject().getSession().getAttribute("authenticate");
         String msg;
         String username = StringUtils.trim(request.getUsername());
-        String password = StringUtils.trim(request.getPassword());
-        if (StringUtils.isBlank(username) || StringUtils.isBlank(password)) {
-            return ResultHolder.error("user or password can't be null");
+        String password = "";
+        if (!StringUtils.equals(login, UserSource.LDAP.name())) {
+            password = StringUtils.trim(request.getPassword());
+            if (StringUtils.isBlank(username) || StringUtils.isBlank(password)) {
+                return ResultHolder.error("user or password can't be null");
+            }
         }
 
         UsernamePasswordToken token = new UsernamePasswordToken(username, password);
@@ -520,6 +574,11 @@ public class UserService {
         } catch (UnauthorizedException e) {
             msg = Translator.get("not_authorized") + e.getMessage();
         }
-        return ResultHolder.error(msg);
+        MSException.throwException(msg);
+        return null;
+    }
+
+    public List<User> searchUser(String condition) {
+        return extUserMapper.searchUser(condition);
     }
 }

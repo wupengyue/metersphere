@@ -3,12 +3,12 @@
 <mapper namespace="io.metersphere.base.mapper.ext.ExtLoadTestReportMapper">
 
     <resultMap id="BaseResultMap" type="io.metersphere.base.domain.LoadTestReport">
-        <id column="id" jdbcType="VARCHAR" property="id" />
-        <result column="test_id" jdbcType="VARCHAR" property="testId" />
-        <result column="name" jdbcType="VARCHAR" property="name" />
-        <result column="create_time" jdbcType="BIGINT" property="createTime" />
-        <result column="update_time" jdbcType="BIGINT" property="updateTime" />
-        <result column="status" jdbcType="VARCHAR" property="status" />
+        <id column="id" jdbcType="VARCHAR" property="id"/>
+        <result column="test_id" jdbcType="VARCHAR" property="testId"/>
+        <result column="name" jdbcType="VARCHAR" property="name"/>
+        <result column="create_time" jdbcType="BIGINT" property="createTime"/>
+        <result column="update_time" jdbcType="BIGINT" property="updateTime"/>
+        <result column="status" jdbcType="VARCHAR" property="status"/>
     </resultMap>
 
     <sql id="Base_Column_List">
@@ -20,7 +20,7 @@
     </sql>
 
     <sql id="combine">
-        <if test="${condition}.name != null">
+        <if test='${condition}.name != null and (${name} == null or ${name} == "")'>
             and ltr.name
             <include refid="condition">
                 <property name="object" value="${condition}.name"/>
@@ -75,30 +75,36 @@
             JOIN project on project.id = lt.project_id
         </if>
         <where>
-            <choose>
-                <!--高级-->
-                <when test="reportRequest.combine != null">
-                    <include refid="combine">
-                        <property name="condition" value="reportRequest.combine"/>
-                    </include>
-                </when>
-                <!--普通-->
-                <otherwise>
-                    <if test="reportRequest.name != null">
-                        AND ltr.name like CONCAT('%', #{reportRequest.name},'%')
-                    </if>
-                </otherwise>
-            </choose>
+            <if test="reportRequest.combine != null">
+                <include refid="combine">
+                    <property name="condition" value="reportRequest.combine"/>
+                    <property name="name" value="reportRequest.name"/>
+                </include>
+            </if>
+            <if test="reportRequest.name != null">
+                AND ltr.name like CONCAT('%', #{reportRequest.name},'%')
+            </if>
             <if test="reportRequest.workspaceId != null">
                 AND workspace_id = #{reportRequest.workspaceId,jdbcType=VARCHAR}
             </if>
             <if test="reportRequest.filters != null and reportRequest.filters.size() > 0">
                 <foreach collection="reportRequest.filters.entrySet()" index="key" item="values">
                     <if test="values != null and values.size() > 0">
-                        and ltr.${key} in
-                        <foreach collection="values" item="value" separator="," open="(" close=")">
-                            #{value}
-                        </foreach>
+                        <choose>
+                            <when test="key=='status'">
+                                and ltr.status in
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                            </when>
+                            <otherwise>
+                                and ltr.trigger_mode in
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                            </otherwise>
+                        </choose>
+
                     </if>
                 </foreach>
             </if>
@@ -119,15 +125,8 @@
         where ltr.id = #{id}
     </select>
 
-    <select id="selectByPrimaryKey" parameterType="java.lang.String" resultMap="BaseResultMap">
-        SELECT
-        <include refid="Base_Column_List"/>
-        FROM load_test_report
-        WHERE id = #{id,jdbcType=VARCHAR}
-    </select>
-
     <select id="selectDashboardTests" resultType="io.metersphere.dto.DashboardTestDTO">
-        SELECT create_time AS date, count(load_test_report.id) AS count,
+        SELECT min(create_time) AS date, count(load_test_report.id) AS count,
         date_format(from_unixtime(create_time / 1000), '%Y-%m-%d') AS x
         FROM load_test_report
         WHERE test_id IN (SELECT load_test.id

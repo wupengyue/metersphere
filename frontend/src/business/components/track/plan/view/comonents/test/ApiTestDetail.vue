@@ -16,7 +16,7 @@
         </el-row>
       </el-header>
 
-      <ms-api-scenario-config :is-read-only="true" :scenarios="test.scenarioDefinition" ref="config"/>
+      <ms-api-scenario-config :project-id="test.projectId" :is-read-only="true" :scenarios="test.scenarioDefinition" ref="config"/>
 
   </el-container>
   </el-card>
@@ -70,6 +70,8 @@
             });
             this.getProject(item.projectId);
             this.$refs.config.reset();
+          } else {
+            this.test = new Test();
           }
         });
       },
@@ -79,7 +81,7 @@
         });
       },
       runTest() {
-        this.result = this.$post("/api/run", {id: this.test.id}, (response) => {
+        this.result = this.$post("/api/run", {id: this.test.id, triggerMode: 'MANUAL'}, (response) => {
           this.$success(this.$t('api_test.running'));
           this.$emit('runTest', response.data)
         });

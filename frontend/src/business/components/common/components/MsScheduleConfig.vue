@@ -1,16 +1,20 @@
 <template>
     <div class="schedule-config">
       <div>
-        <span class="cron-ico">
+        <span class="cron-ico" @click="scheduleEdit">
           <i class="el-icon-date" size="small"></i>
-          <span class="character" @click="scheduleEdit">SCHEDULER</span>
+          <span class="character">SCHEDULER</span>
         </span>
-        <el-switch :disabled="!schedule.value" v-model="schedule.enable" @change="scheduleChange"/>
-        <ms-schedule-edit :schedule="schedule" :save="save" :custom-validate="customValidate" ref="scheduleEdit"/>
-        <crontab-result v-show="false" :ex="schedule.value" ref="crontabResult" @resultListChange="resultListChange"/>
+        <el-switch :disabled="!schedule.value || isReadOnly" v-model="schedule.enable" @change="scheduleChange"/>
+        <ms-schedule-edit :is-read-only="isReadOnly" :schedule="schedule" :save="save" :custom-validate="customValidate" ref="scheduleEdit"/>
+
       </div>
       <div>
-        <span :class="{'disable-character': !schedule.enable}"> {{$t('schedule.next_execution_time')}}：{{this.recentList.length > 0 ? this.recentList[0] : $t('schedule.not_set')}} </span>
+        <span>
+          {{$t('schedule.next_execution_time')}}：
+          <span :class="{'disable-character': !schedule.enable}" v-if="!schedule.enable">{{$t('schedule.not_set')}}</span>
+          <crontab-result v-if="schedule.enable" :enable-simple-mode="true" :ex="schedule.value" ref="crontabResult"/>
+        </span>
       </div>
     </div>
 </template>
@@ -44,6 +48,10 @@
           type: Function,
           default: defaultCustomValidate
         },
+        isReadOnly: {
+          type: Boolean,
+          default: false
+        }
       },
       methods: {
         scheduleEdit() {
@@ -54,9 +62,6 @@
         },
         scheduleChange() {
           this.$emit('scheduleChange');
-        },
-        resultListChange(resultList) {
-          this.recentList = resultList;
         },
         flashResultList() {
           this.$refs.crontabResult.expressionChange();

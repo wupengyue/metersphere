@@ -1,13 +1,15 @@
 <template>
-  <el-dialog width="30%" class="schedule-edit" :title="$t('schedule.edit_timer_task')" :visible.sync="dialogVisible"  @close="close">
+  <el-dialog width="35%" class="schedule-edit" :title="$t('schedule.edit_timer_task')" :visible.sync="dialogVisible"  @close="close">
     <div id="app">
       <el-form :model="form" :rules="rules" ref="from">
         <el-form-item
-          :placeholder="$t('schedule.please_input_cron_expression')"
           prop="cronValue">
-          <el-input v-model="form.cronValue" placeholder class="inp"/>
-          <el-button type="primary" @click="showCronDialog">{{$t('schedule.generate_expression')}}</el-button>
-          <el-button type="primary" @click="saveCron">{{$t('commons.save')}}</el-button>
+          <el-input :disabled="isReadOnly" v-model="form.cronValue" class="inp" :placeholder="$t('schedule.please_input_cron_expression')"/>
+<!--          <el-button type="primary" @click="showCronDialog">{{$t('schedule.generate_expression')}}</el-button>-->
+          <el-button :disabled="isReadOnly" type="primary" @click="saveCron">{{$t('commons.save')}}</el-button>
+        </el-form-item>
+        <el-form-item>
+          <el-link :disabled="isReadOnly" type="primary" @click="showCronDialog">{{$t('schedule.generate_expression')}}</el-link>
         </el-form-item>
         <crontab-result :ex="form.cronValue" ref="crontabResult" />
       </el-form>
@@ -23,6 +25,7 @@
     import Crontab from "../cron/Crontab";
     import CrontabResult from "../cron/CrontabResult";
     import {cronValidate} from "../../../../common/js/cron";
+    import {listenGoBack, removeGoBackListener} from "../../../../common/js/utils";
 
     function defaultCustomValidate() {return {pass: true};}
 
@@ -36,6 +39,10 @@
           type: Function,
           default: defaultCustomValidate
         },
+        isReadOnly: {
+          type: Boolean,
+          default: false
+        }
       },
       watch: {
         'schedule.value'() {
@@ -45,11 +52,15 @@
       data() {
           const validateCron = (rule, cronValue, callback) => {
             let customValidate = this.customValidate(this.getIntervalTime());
-            if (!cronValidate(cronValue)) {
+            if (!cronValue) {
+              callback(new Error(this.$t('commons.input_content')));
+            } else if (!cronValidate(cronValue)) {
               callback(new Error(this.$t('schedule.cron_expression_format_error')));
-            } else if(!this.intervalShortValidate()) {
-              callback(new Error(this.$t('schedule.cron_expression_interval_short_error')));
-            } else if (!customValidate.pass){
+            }
+            // else if(!this.intervalShortValidate()) {
+            //   callback(new Error(this.$t('schedule.cron_expression_interval_short_error')));
+            // }
+            else if (!customValidate.pass){
               callback(new Error(customValidate.info));
             } else {
               callback();
@@ -70,6 +81,7 @@
         open() {
           this.dialogVisible = true;
           this.form.cronValue = this.schedule.value;
+          listenGoBack(this.close);
         },
         crontabFill(value, resultList) {
           //确定后回传的值
@@ -83,6 +95,7 @@
         saveCron () {
           this.$refs['from'].validate((valid) => {
             if (valid) {
+              this.intervalShortValidate();
               this.save(this.form.cronValue);
               this.dialogVisible = false;
             } else  {
@@ -97,10 +110,12 @@
           if (!this.schedule.value) {
             this.$refs.crontabResult.resultList = [];
           }
+          removeGoBackListener(this.close);
         },
         intervalShortValidate() {
-          if (this.getIntervalTime() < 5*60*1000) {
-            return false;
+          if (this.getIntervalTime() < 3*60*1000) {
+            // return false;
+            this.$info(this.$t('schedule.cron_expression_interval_short_error'));
           }
           return true;
         },
@@ -122,6 +137,10 @@
   .inp {
     width: 50%;
     margin-right: 20px;
+  }
+
+  .el-form-item {
+    margin-bottom: 10px;
   }
 
 </style>

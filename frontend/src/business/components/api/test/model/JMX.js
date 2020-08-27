@@ -220,30 +220,84 @@ export class ThreadGroup extends DefaultTestElement {
   }
 }
 
-export class HTTPSamplerProxy extends DefaultTestElement {
-  constructor(testName, request) {
-    super('HTTPSamplerProxy', 'HttpTestSampleGui', 'HTTPSamplerProxy', testName);
-    this.request = request || {};
+export class DubboSample extends DefaultTestElement {
+  constructor(testName, request = {}) {
+    super('io.github.ningyu.jmeter.plugin.dubbo.sample.DubboSample',
+      'io.github.ningyu.jmeter.plugin.dubbo.gui.DubboSampleGui',
+      'io.github.ningyu.jmeter.plugin.dubbo.sample.DubboSample', testName);
+    this.request = request;
 
-    if (request.useEnvironment) {
-      this.stringProp("HTTPSampler.domain", this.request.environment.domain);
-      this.stringProp("HTTPSampler.protocol", this.request.environment.protocol);
-      this.stringProp("HTTPSampler.path", this.request.path);
-    } else {
-      this.stringProp("HTTPSampler.domain", this.request.hostname);
-      this.stringProp("HTTPSampler.protocol", this.request.protocol.split(":")[0]);
-      this.stringProp("HTTPSampler.path", this.request.pathname);
-    }
-    this.stringProp("HTTPSampler.method", this.request.method);
-    this.stringProp("HTTPSampler.contentEncoding", this.request.encoding, "UTF-8");
-    if (!this.request.port) {
+    this.stringProp("FIELD_DUBBO_CONFIG_CENTER_PROTOCOL", this.request.configCenter.protocol);
+    this.stringProp("FIELD_DUBBO_CONFIG_CENTER_GROUP", this.request.configCenter.group);
+    this.stringProp("FIELD_DUBBO_CONFIG_CENTER_NAMESPACE", this.request.configCenter.namespace);
+    this.stringProp("FIELD_DUBBO_CONFIG_CENTER_USER_NAME", this.request.configCenter.username);
+    this.stringProp("FIELD_DUBBO_CONFIG_CENTER_PASSWORD", this.request.configCenter.password);
+    this.stringProp("FIELD_DUBBO_CONFIG_CENTER_ADDRESS", this.request.configCenter.address);
+    this.stringProp("FIELD_DUBBO_CONFIG_CENTER_TIMEOUT", this.request.configCenter.timeout);
+
+    this.stringProp("FIELD_DUBBO_REGISTRY_PROTOCOL", this.request.registryCenter.protocol);
+    this.stringProp("FIELD_DUBBO_REGISTRY_GROUP", this.request.registryCenter.group);
+    this.stringProp("FIELD_DUBBO_REGISTRY_USER_NAME", this.request.registryCenter.username);
+    this.stringProp("FIELD_DUBBO_REGISTRY_PASSWORD", this.request.registryCenter.password);
+    this.stringProp("FIELD_DUBBO_ADDRESS", this.request.registryCenter.address);
+    this.stringProp("FIELD_DUBBO_REGISTRY_TIMEOUT", this.request.registryCenter.timeout);
+
+    this.stringProp("FIELD_DUBBO_TIMEOUT", this.request.consumerAndService.timeout);
+    this.stringProp("FIELD_DUBBO_VERSION", this.request.consumerAndService.version);
+    this.stringProp("FIELD_DUBBO_RETRIES", this.request.consumerAndService.retries);
+    this.stringProp("FIELD_DUBBO_GROUP", this.request.consumerAndService.group);
+    this.stringProp("FIELD_DUBBO_CONNECTIONS", this.request.consumerAndService.connections);
+    this.stringProp("FIELD_DUBBO_LOADBALANCE", this.request.consumerAndService.loadBalance);
+    this.stringProp("FIELD_DUBBO_ASYNC", this.request.consumerAndService.async);
+    this.stringProp("FIELD_DUBBO_CLUSTER", this.request.consumerAndService.cluster);
+
+    this.stringProp("FIELD_DUBBO_RPC_PROTOCOL", this.request.protocol);
+    this.stringProp("FIELD_DUBBO_INTERFACE", this.request.interface);
+    this.stringProp("FIELD_DUBBO_METHOD", this.request.method);
+
+    this.intProp("FIELD_DUBBO_METHOD_ARGS_SIZE", this.request.args.length);
+    this.intProp("FIELD_DUBBO_ATTACHMENT_ARGS_SIZE", this.request.attachmentArgs.length);
+    this.request.args.forEach((arg, i) => {
+      if (!!arg.name || !!arg.value) {
+        let index = i + 1;
+        this.stringProp("FIELD_DUBBO_METHOD_ARGS_PARAM_TYPE" + index, arg.name);
+        this.stringProp("FIELD_DUBBO_METHOD_ARGS_PARAM_VALUE" + index, arg.value);
+      }
+    })
+    this.request.attachmentArgs.forEach((arg, i) => {
+      if (!!arg.name || !!arg.value) {
+        let index = i + 1;
+        this.stringProp("FIELD_DUBBO_ATTACHMENT_ARGS_KEY" + index, arg.name);
+        this.stringProp("FIELD_DUBBO_ATTACHMENT_ARGS_VALUE" + index, arg.value);
+      }
+    })
+  }
+}
+
+export class HTTPSamplerProxy extends DefaultTestElement {
+  constructor(testName, options = {}) {
+    super('HTTPSamplerProxy', 'HttpTestSampleGui', 'HTTPSamplerProxy', testName);
+
+    this.stringProp("HTTPSampler.domain", options.domain);
+    this.stringProp("HTTPSampler.protocol", options.protocol);
+    this.stringProp("HTTPSampler.path", options.path);
+
+    this.stringProp("HTTPSampler.method", options.method);
+    this.stringProp("HTTPSampler.contentEncoding", options.encoding, "UTF-8");
+    if (!options.port) {
       this.stringProp("HTTPSampler.port", "");
     } else {
-      this.stringProp("HTTPSampler.port", this.request.port);
+      this.stringProp("HTTPSampler.port", options.port);
+    }
+    if (options.connectTimeout) {
+      this.stringProp('HTTPSampler.connect_timeout', options.connectTimeout);
+    }
+    if (options.responseTimeout) {
+      this.stringProp('HTTPSampler.response_timeout', options.responseTimeout);
     }
 
-    this.boolProp("HTTPSampler.follow_redirects", this.request.follow, true);
-    this.boolProp("HTTPSampler.use_keepalive", this.request.keepalive, true);
+    this.boolProp("HTTPSampler.follow_redirects", options.follow, true);
+    this.boolProp("HTTPSampler.use_keepalive", options.keepalive, true);
   }
 }
 
@@ -274,6 +328,34 @@ export class HTTPSamplerArguments extends Element {
   }
 }
 
+export class HTTPsamplerFiles extends Element {
+  constructor(args) {
+    super('elementProp', {
+      name: "HTTPsampler.Files",
+      elementType: "HTTPFileArgs",
+    });
+
+    this.args = args || {};
+
+    let collectionProp = this.collectionProp('HTTPFileArgs.files');
+    this.args.forEach(arg => {
+      let elementProp = collectionProp.elementProp(arg.value, 'HTTPFileArg');
+      elementProp.stringProp('File.path', arg.value);
+      elementProp.stringProp('File.paramname', arg.name);
+      elementProp.stringProp('File.mimetype', arg.metadata || "application/octet-stream");
+    });
+  }
+}
+
+export class CookieManager extends DefaultTestElement {
+  constructor(testName) {
+    super('CookieManager', 'CookiePanel', 'CookieManager', testName);
+    this.collectionProp('CookieManager.cookies');
+    this.boolProp('CookieManager.clearEachIteration', false, false);
+    this.boolProp('CookieManager.controlledByThreadGroup', false, false);
+  }
+}
+
 export class DurationAssertion extends DefaultTestElement {
   constructor(testName, duration) {
     super('DurationAssertion', 'DurationAssertionGui', 'DurationAssertion', testName);
@@ -295,6 +377,20 @@ export class ResponseAssertion extends DefaultTestElement {
     let collectionProp = this.collectionProp('Asserion.test_strings');
     let random = Math.floor(Math.random() * 10000);
     collectionProp.stringProp(random, this.assertion.value);
+  }
+}
+
+export class JSONPathAssertion extends DefaultTestElement {
+  constructor(testName, jsonPath) {
+    super('JSONPathAssertion', 'JSONPathAssertionGui', 'JSONPathAssertion', testName);
+    this.jsonPath = jsonPath || {};
+
+    this.stringProp('JSON_PATH', this.jsonPath.expression);
+    this.stringProp('EXPECTED_VALUE', this.jsonPath.expect);
+    this.boolProp('JSONVALIDATION', true);
+    this.boolProp('EXPECT_NULL', false);
+    this.boolProp('INVERT', false);
+    this.boolProp('ISREGEX', true);
   }
 }
 
@@ -334,12 +430,37 @@ export class ResponseHeadersAssertion extends ResponseAssertion {
   }
 }
 
+export class BeanShellProcessor extends DefaultTestElement {
+  constructor(tag, guiclass, testclass, testname, processor) {
+    super(tag, guiclass, testclass, testname);
+    this.processor = processor || {};
+    this.boolProp('resetInterpreter', false);
+    this.stringProp('parameters');
+    this.stringProp('filename');
+    this.stringProp('script', processor.script);
+  }
+}
+
+export class BeanShellPreProcessor extends BeanShellProcessor {
+  constructor(testName, processor) {
+    super('BeanShellPreProcessor', 'TestBeanGUI', 'BeanShellPreProcessor', testName, processor)
+  }
+}
+
+export class BeanShellPostProcessor extends BeanShellProcessor {
+  constructor(testName, processor) {
+    super('BeanShellPostProcessor', 'TestBeanGUI', 'BeanShellPostProcessor', testName, processor)
+  }
+}
+
 export class HeaderManager extends DefaultTestElement {
   constructor(testName, headers) {
     super('HeaderManager', 'HeaderPanel', 'HeaderManager', testName);
     this.headers = headers || [];
 
     let collectionProp = this.collectionProp('HeaderManager.headers');
+
+
     this.headers.forEach(header => {
       let elementProp = collectionProp.elementProp('', 'Header');
       elementProp.stringProp('Header.name', header.name);

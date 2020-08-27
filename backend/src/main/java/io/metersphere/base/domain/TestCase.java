@@ -33,5 +33,9 @@ public class TestCase implements Serializable {
 
     private Integer sort;
 
+    private Integer num;
+
+    private String otherTestName;
+
     private static final long serialVersionUID = 1L;
 }

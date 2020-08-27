@@ -14,7 +14,7 @@
     </sql>
 
     <sql id="combine">
-        <if test="${condition}.name != null">
+        <if test='${condition}.name != null and (${name} == null or ${name} == "")'>
             and r.name
             <include refid="condition">
                 <property name="object" value="${condition}.name"/>
@@ -66,20 +66,16 @@
         LEFT JOIN project ON project.id = t.project_id
         LEFT JOIN user ON user.id = r.user_id
         <where>
-            <choose>
-                <!--高级-->
-                <when test="request.combine != null">
-                    <include refid="combine">
-                        <property name="condition" value="request.combine"/>
-                    </include>
-                </when>
-                <!--普通-->
-                <otherwise>
-                    <if test="request.name != null">
-                        and r.name like CONCAT('%', #{request.name},'%')
-                    </if>
-                </otherwise>
-            </choose>
+            <if test="request.combine != null">
+                <include refid="combine">
+                    <property name="condition" value="request.combine"/>
+                    <property name="name" value="request.name"/>
+                </include>
+            </if>
+
+            <if test="request.name != null">
+                and r.name like CONCAT('%', #{request.name},'%')
+            </if>
             <if test="request.projectId != null">
                 AND project.id = #{request.projectId}
             </if>
@@ -89,13 +85,24 @@
             <if test="request.filters != null and request.filters.size() > 0">
                 <foreach collection="request.filters.entrySet()" index="key" item="values">
                     <if test="values != null and values.size() > 0">
-                        and r.${key} in
-                        <foreach collection="values" item="value" separator="," open="(" close=")">
-                            #{value}
-                        </foreach>
+                        <choose>
+                            <when test="key=='status'">
+                                and r.status in
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                            </when>
+                            <otherwise>
+                                and r.trigger_mode in
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                            </otherwise>
+                        </choose>
                     </if>
                 </foreach>
             </if>
+            AND r.status != 'Debug'
         </where>
         <if test="request.orders != null and request.orders.size() > 0">
             order by
@@ -130,7 +137,7 @@
     </select>
 
     <select id="selectDashboardTests" resultType="io.metersphere.dto.DashboardTestDTO">
-        SELECT create_time AS date, count(api_test_report.id) AS count,
+        SELECT min(create_time) AS date, count(api_test_report.id) AS count,
         date_format(from_unixtime(create_time / 1000), '%Y-%m-%d') AS x
         FROM api_test_report
         WHERE test_id IN (SELECT api_test.id

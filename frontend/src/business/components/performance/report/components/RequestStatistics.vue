@@ -25,7 +25,7 @@
 
         <el-table-column
           prop="ko"
-          label="KO%"
+          label="KO"
           align="center"
         />
 
@@ -66,8 +66,8 @@
       <el-table-column label="Throughput">
         <el-table-column
           prop="transactions"
-          label="Transactions"
-          width="100"
+          label="Transactions/s"
+          width="150"
         />
       </el-table-column>
 
@@ -76,13 +76,13 @@
           prop="received"
           label="Received"
           align="center"
-          width="200"
+          width="150"
         />
         <el-table-column
           prop="sent"
           label="Sent"
           align="center"
-          width="200"
+          width="150"
         />
       </el-table-column>
 
@@ -109,7 +109,7 @@
       },
       getSummaries(param) {
         const {data} = param;
-        const sums = []
+        const sums = [];
         let allSamples = data.reduce(function (total, currentValue) {
           return total + parseFloat(currentValue.samples);
         }, 0);
@@ -162,6 +162,9 @@
     watch: {
       report: {
         handler(val){
+          if (!val.status || !val.id) {
+            return;
+          }
           let status = val.status;
           this.id = val.id;
           if (status === "Completed" || status === "Running") {

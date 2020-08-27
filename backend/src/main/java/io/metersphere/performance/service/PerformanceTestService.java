@@ -7,21 +7,26 @@ import io.metersphere.base.mapper.ext.ExtLoadTestReportDetailMapper;
 import io.metersphere.base.mapper.ext.ExtLoadTestReportMapper;
 import io.metersphere.commons.constants.*;
 import io.metersphere.commons.exception.MSException;
+import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.commons.utils.ServiceUtils;
 import io.metersphere.commons.utils.SessionUtils;
 import io.metersphere.config.KafkaProperties;
 import io.metersphere.controller.request.OrderRequest;
+import io.metersphere.controller.request.QueryScheduleRequest;
 import io.metersphere.dto.DashboardTestDTO;
 import io.metersphere.dto.LoadTestDTO;
+import io.metersphere.dto.ScheduleDao;
 import io.metersphere.i18n.Translator;
 import io.metersphere.job.sechedule.PerformanceTestJob;
 import io.metersphere.performance.engine.Engine;
 import io.metersphere.performance.engine.EngineFactory;
 import io.metersphere.service.FileService;
+import io.metersphere.service.QuotaService;
 import io.metersphere.service.ScheduleService;
 import io.metersphere.service.TestResourceService;
 import io.metersphere.track.request.testplan.*;
+import io.metersphere.track.service.TestCaseService;
 import org.apache.commons.collections4.ListUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -29,7 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.annotation.Resource;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -37,6 +41,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import javax.annotation.Resource;
 
 @Service
 @Transactional(rollbackFor = Exception.class)
@@ -73,6 +79,8 @@ public class PerformanceTestService {
     private ScheduleService scheduleService;
     @Resource
     private TestCaseMapper testCaseMapper;
+    @Resource
+    private TestCaseService testCaseService;
 
     public List<LoadTestDTO> list(QueryTestPlanRequest request) {
         request.setOrders(ServiceUtils.getDefaultOrder(request.getOrders()));
@@ -82,18 +90,7 @@ public class PerformanceTestService {
     public void delete(DeleteTestPlanRequest request) {
         String testId = request.getId();
 
-        // 是否关联测试用例
-        TestCaseExample testCaseExample = new TestCaseExample();
-        testCaseExample.createCriteria().andTestIdEqualTo(testId);
-        List<TestCase> testCases = testCaseMapper.selectByExample(testCaseExample);
-        if (testCases.size() > 0) {
-            String caseName = "";
-            for (int i = 0; i < testCases.size(); i++) {
-                caseName = caseName + testCases.get(i).getName() + ",";
-            }
-            caseName = caseName.substring(0, caseName.length() - 1);
-            MSException.throwException(Translator.get("related_case_del_fail_prefix") + caseName + Translator.get("related_case_del_fail_suffix"));
-        }
+        testCaseService.checkIsRelateTest(testId);
 
         LoadTestReportExample loadTestReportExample = new LoadTestReportExample();
         loadTestReportExample.createCriteria().andTestIdEqualTo(testId);
@@ -107,6 +104,9 @@ public class PerformanceTestService {
                 reportService.deleteReport(reportId);
             });
         }
+
+        //delete schedule
+        scheduleService.deleteByResourceId(testId);
 
         // delete load_test
         loadTestMapper.deleteByPrimaryKey(request.getId());
@@ -130,6 +130,9 @@ public class PerformanceTestService {
         if (files == null) {
             throw new IllegalArgumentException(Translator.get("file_cannot_be_null"));
         }
+
+        checkQuota(request, true);
+
         final LoadTestWithBLOBs loadTest = saveLoadTest(request);
         files.forEach(file -> {
             final FileMetadata fileMetadata = fileService.saveFile(file);
@@ -165,6 +168,7 @@ public class PerformanceTestService {
     }
 
     public String edit(EditTestPlanRequest request, List<MultipartFile> files) {
+        checkQuota(request, false);
         //
         LoadTestWithBLOBs loadTest = loadTestMapper.selectByPrimaryKey(request.getId());
         if (loadTest == null) {
@@ -229,8 +233,6 @@ public class PerformanceTestService {
 
         startEngine(loadTest, engine, request.getTriggerMode());
 
-        // todo：通过调用stop方法能够停止正在运行的engine，但是如果部署了多个backend实例，页面发送的停止请求如何定位到具体的engine
-
         return engine.getReportId();
     }
 
@@ -260,7 +262,7 @@ public class PerformanceTestService {
     }
 
     private void startEngine(LoadTestWithBLOBs loadTest, Engine engine, String triggerMode) {
-        LoadTestReport testReport = new LoadTestReport();
+        LoadTestReportWithBLOBs testReport = new LoadTestReportWithBLOBs();
         testReport.setId(engine.getReportId());
         testReport.setCreateTime(engine.getStartTime());
         testReport.setUpdateTime(engine.getStartTime());
@@ -280,6 +282,7 @@ public class PerformanceTestService {
             loadTest.setStatus(PerformanceTestStatus.Starting.name());
             loadTestMapper.updateByPrimaryKeySelective(loadTest);
             // 启动正常插入 report
+            testReport.setLoadConfiguration(loadTest.getLoadConfiguration());
             testReport.setStatus(PerformanceTestStatus.Starting.name());
             loadTestReportMapper.insertSelective(testReport);
 
@@ -361,6 +364,7 @@ public class PerformanceTestService {
     }
 
     public void copy(SaveTestPlanRequest request) {
+        checkQuota(request, true);
         // copy test
         LoadTestWithBLOBs copy = loadTestMapper.selectByPrimaryKey(request.getId());
         copy.setId(UUID.randomUUID().toString());
@@ -406,7 +410,42 @@ public class PerformanceTestService {
         scheduleService.addOrUpdateCronJob(request, PerformanceTestJob.getJobKey(request.getResourceId()), PerformanceTestJob.getTriggerKey(request.getResourceId()), PerformanceTestJob.class);
     }
 
-    public void stopTest(String reportId) {
-        reportService.deleteReport(reportId);
+    public void stopTest(String reportId, boolean forceStop) {
+        if (forceStop) {
+            reportService.deleteReport(reportId);
+        } else {
+            LoadTestReport loadTestReport = loadTestReportMapper.selectByPrimaryKey(reportId);
+            LoadTestWithBLOBs loadTest = loadTestMapper.selectByPrimaryKey(loadTestReport.getTestId());
+            final Engine engine = EngineFactory.createEngine(loadTest);
+            if (engine == null) {
+                MSException.throwException(String.format("Stop report fail. create engine fail，report ID：%s", reportId));
+            }
+            reportService.stopEngine(loadTest, engine);
+            // 停止测试之后设置报告的状态
+            reportService.updateStatus(reportId, PerformanceTestStatus.Completed.name());
+        }
+    }
+
+    public List<ScheduleDao> listSchedule(QueryScheduleRequest request) {
+        request.setEnable(true);
+        List<ScheduleDao> schedules = scheduleService.list(request);
+        List<String> resourceIds = schedules.stream()
+                .map(Schedule::getResourceId)
+                .collect(Collectors.toList());
+        if (!resourceIds.isEmpty()) {
+            LoadTestExample example = new LoadTestExample();
+            example.createCriteria().andIdIn(resourceIds);
+            List<LoadTest> loadTests = loadTestMapper.selectByExample(example);
+            Map<String, String> loadTestMap = loadTests.stream().collect(Collectors.toMap(LoadTest::getId, LoadTest::getName));
+            scheduleService.build(loadTestMap, schedules);
+        }
+        return schedules;
+    }
+
+    private void checkQuota(TestPlanRequest request, boolean create) {
+        QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
+        if (quotaService != null) {
+            quotaService.checkLoadTestQuota(request, create);
+        }
     }
 }

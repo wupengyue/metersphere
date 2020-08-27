@@ -1,5 +1,6 @@
 package io.metersphere.config;
 
+import io.metersphere.commons.utils.ShiroUtils;
 import io.metersphere.security.ApiKeyFilter;
 import io.metersphere.security.LoginFilter;
 import io.metersphere.security.ShiroDBRealm;
@@ -9,16 +10,17 @@ import org.apache.shiro.spring.LifecycleBeanPostProcessor;
 import org.apache.shiro.spring.security.interceptor.AuthorizationAttributeSourceAdvisor;
 import org.apache.shiro.spring.web.ShiroFilterFactoryBean;
 import org.apache.shiro.web.mgt.DefaultWebSecurityManager;
-import org.apache.shiro.web.servlet.SimpleCookie;
-import org.apache.shiro.web.session.mgt.DefaultWebSessionManager;
 import org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.env.Environment;
 
 import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
@@ -27,7 +29,9 @@ import java.util.Map;
 import java.util.Objects;
 
 @Configuration
-public class ShiroConfig {
+@ConditionalOnProperty(prefix="sso",name = "mode", havingValue = "local", matchIfMissing = true)
+public class ShiroConfig implements EnvironmentAware {
+    private Environment env;
 
     @Bean
     public ShiroFilterFactoryBean getShiroFilterFactoryBean(DefaultWebSecurityManager sessionManager) {
@@ -39,25 +43,8 @@ public class ShiroConfig {
         shiroFilterFactoryBean.setSuccessUrl("/");
 
         shiroFilterFactoryBean.getFilters().put("apikey", new ApiKeyFilter());
-
         Map<String, String> filterChainDefinitionMap = shiroFilterFactoryBean.getFilterChainDefinitionMap();
-        filterChainDefinitionMap.put("/resource/**", "anon");
-        filterChainDefinitionMap.put("/", "anon");
-        filterChainDefinitionMap.put("/signin", "anon");
-        filterChainDefinitionMap.put("/ldap/signin", "anon");
-        filterChainDefinitionMap.put("/isLogin", "anon");
-        filterChainDefinitionMap.put("/css/**", "anon");
-        filterChainDefinitionMap.put("/js/**", "anon");
-        filterChainDefinitionMap.put("/img/**", "anon");
-        filterChainDefinitionMap.put("/fonts/**", "anon");
-
-        // for swagger
-        filterChainDefinitionMap.put("/swagger-ui.html", "anon");
-        filterChainDefinitionMap.put("/swagger-ui/**", "anon");
-        filterChainDefinitionMap.put("/v3/api-docs/**", "anon");
-
-        filterChainDefinitionMap.put("/403", "anon");
-        filterChainDefinitionMap.put("/anonymous/**", "anon");
+        ShiroUtils.loadBaseFilterChain(filterChainDefinitionMap);
         filterChainDefinitionMap.put("/**", "apikey, authc");
         return shiroFilterFactoryBean;
     }
@@ -115,17 +102,8 @@ public class ShiroConfig {
 
     @Bean
     public SessionManager sessionManager(MemoryConstrainedCacheManager memoryConstrainedCacheManager) {
-        DefaultWebSessionManager sessionManager = new DefaultWebSessionManager();
-        sessionManager.setSessionIdUrlRewritingEnabled(false);
-        sessionManager.setGlobalSessionTimeout(1800000L);
-        sessionManager.setDeleteInvalidSessions(true);
-        sessionManager.setSessionValidationSchedulerEnabled(true);
-        SimpleCookie sessionIdCookie = new SimpleCookie();
-        sessionManager.setSessionIdCookie(sessionIdCookie);
-        sessionIdCookie.setPath("/");
-        sessionIdCookie.setName("MS_SESSION_ID");
-        sessionManager.setCacheManager(memoryConstrainedCacheManager);
-        return sessionManager;
+        Long sessionTimeout = env.getProperty("session.timeout", Long.class, 1800L); // 默认1800s, 半个小时
+        return ShiroUtils.getSessionManager(sessionTimeout, memoryConstrainedCacheManager);
     }
 
     /**
@@ -136,5 +114,10 @@ public class ShiroConfig {
         ApplicationContext context = event.getApplicationContext();
         ShiroDBRealm shiroDBRealm = (ShiroDBRealm) context.getBean("shiroDBRealm");
         ((DefaultWebSecurityManager) context.getBean("securityManager")).setRealm(shiroDBRealm);
+    }
+
+    @Override
+    public void setEnvironment(Environment environment) {
+        this.env = environment;
     }
 }

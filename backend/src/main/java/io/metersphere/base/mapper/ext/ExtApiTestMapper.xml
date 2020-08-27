@@ -53,7 +53,7 @@
     </sql>
 
     <sql id="combine">
-        <if test="${condition}.name != null">
+        <if test='${condition}.name != null and (${name} == null or ${name} == "")'>
             and api_test.name
             <include refid="condition">
                 <property name="object" value="${condition}.name"/>
@@ -91,26 +91,23 @@
         </if>
     </sql>
 
-    <select id="list" resultMap="BaseResultMap" parameterType="io.metersphere.api.dto.APITestResult">
-        select api_test.*, project.name as project_name, user.name as user_name
+    <select id="list" resultMap="BaseResultMap">
+        select api_test.id, api_test.project_id, api_test.name, api_test.description,
+        api_test.status, api_test.user_id, api_test.create_time, api_test.update_time, project.name as project_name, user.name as user_name
         from api_test
         left join project on api_test.project_id = project.id
         left join user on api_test.user_id = user.id
         <where>
-            <choose>
-                <!--高级-->
-                <when test="request.combine != null">
-                    <include refid="combine">
-                        <property name="condition" value="request.combine"/>
-                    </include>
-                </when>
-                <!--普通-->
-                <otherwise>
-                    <if test="request.name != null">
-                        and api_test.name like CONCAT('%', #{request.name},'%')
-                    </if>
-                </otherwise>
-            </choose>
+            <if test="request.combine != null">
+                <include refid="combine">
+                    <property name="condition" value="request.combine"/>
+                    <property name="name" value="request.name"/>
+                </include>
+            </if>
+
+            <if test="request.name != null">
+                and api_test.name like CONCAT('%', #{request.name},'%')
+            </if>
             <if test="request.workspaceId != null">
                 AND project.workspace_id = #{request.workspaceId}
             </if>
@@ -122,12 +119,14 @@
             </if>
             <if test="request.filters != null and request.filters.size() > 0">
                 <foreach collection="request.filters.entrySet()" index="key" item="values">
+
                     <if test="values != null and values.size() > 0">
-                        and api_test.${key} in
+                        and api_test.status in
                         <foreach collection="values" item="value" separator="," open="(" close=")">
                             #{value}
                         </foreach>
                     </if>
+
                 </foreach>
             </if>
         </where>

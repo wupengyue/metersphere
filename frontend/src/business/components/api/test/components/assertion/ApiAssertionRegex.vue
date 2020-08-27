@@ -10,7 +10,7 @@
         </el-select>
       </el-col>
       <el-col>
-        <el-input :disabled="isReadOnly" v-model="regex.expression" maxlength="255" size="small" show-word-limit
+        <el-input :disabled="isReadOnly" v-model="regex.expression" size="small" show-word-limit
                   :placeholder="$t('api_test.request.assertions.expression')"/>
       </el-col>
       <el-col class="assertion-btn">
@@ -53,6 +53,15 @@
       }
     },
 
+    watch: {
+      'regex.subject'() {
+        this.setRegexDescription();
+      },
+      'regex.expression'() {
+        this.setRegexDescription();
+      }
+    },
+
     methods: {
       add: function () {
         this.list.push(this.getRegex());
@@ -65,6 +74,9 @@
         let regex = new Regex(this.regex);
         regex.description = regex.subject + " has: " + regex.expression;
         return regex;
+      },
+      setRegexDescription() {
+        this.regex.description = this.regex.subject + " has: " + this.regex.expression;
       }
     }
   }

@@ -2,7 +2,9 @@ package io.metersphere.api.jmeter;
 
 import io.metersphere.api.service.APIReportService;
 import io.metersphere.api.service.APITestService;
+import io.metersphere.base.domain.ApiTestReport;
 import io.metersphere.commons.constants.APITestStatus;
+import io.metersphere.commons.constants.ApiRunMode;
 import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.LogUtil;
 import org.apache.commons.lang3.StringUtils;
@@ -31,12 +33,16 @@ public class APIBackendListenerClient extends AbstractBackendListenerClient impl
 
     private APIReportService apiReportService;
 
+    public String runMode = ApiRunMode.RUN.name();
+
     // 测试ID
     private String testId;
 
+    private String debugReportId;
+
     @Override
     public void setupTest(BackendListenerContext context) throws Exception {
-        this.testId = context.getParameter(TEST_ID);
+        setParam(context);
         apiTestService = CommonBeanFactory.getBean(APITestService.class);
         if (apiTestService == null) {
             LogUtil.error("apiTestService is required");
@@ -99,22 +105,25 @@ public class APIBackendListenerClient extends AbstractBackendListenerClient impl
 
         testResult.getScenarios().addAll(scenarios.values());
         testResult.getScenarios().sort(Comparator.comparing(ScenarioResult::getId));
-        apiTestService.changeStatus(testId, APITestStatus.Completed);
-        apiReportService.complete(testResult);
+        ApiTestReport report = null;
+        if (StringUtils.equals(this.runMode, ApiRunMode.DEBUG.name())) {
+            report = apiReportService.get(debugReportId);
+        } else {
+            apiTestService.changeStatus(testId, APITestStatus.Completed);
+            report = apiReportService.getRunningReport(testResult.getTestId());
+        }
+        apiReportService.complete(testResult, report);
 
         queue.clear();
         super.teardownTest(context);
     }
 
     private RequestResult getRequestResult(SampleResult result) {
-        String body = result.getSamplerData();
-        String method = StringUtils.substringBefore(body, " ");
-
         RequestResult requestResult = new RequestResult();
         requestResult.setName(result.getSampleLabel());
         requestResult.setUrl(result.getUrlAsString());
-        requestResult.setMethod(method);
-        requestResult.setBody(body);
+        requestResult.setMethod(getMethod(result));
+        requestResult.setBody(result.getSamplerData());
         requestResult.setHeaders(result.getRequestHeaders());
         requestResult.setRequestSize(result.getSentBytes());
         requestResult.setTotalAssertions(result.getAssertionResults().length);
@@ -141,6 +150,28 @@ public class APIBackendListenerClient extends AbstractBackendListenerClient impl
             responseResult.getAssertions().add(responseAssertionResult);
         }
         return requestResult;
+    }
+
+    private String getMethod(SampleResult result) {
+        String body = result.getSamplerData();
+        // Dubbo Protocol
+        String start = "RPC Protocol: ";
+        String end = "://";
+        if (StringUtils.contains(body, start)) {
+            return StringUtils.substringBetween(body, start, end).toUpperCase();
+        } else {
+            // Http Method
+            return StringUtils.substringBefore(body, " ");
+        }
+    }
+
+    private void setParam(BackendListenerContext context) {
+        this.testId = context.getParameter(TEST_ID);
+        this.runMode = context.getParameter("runMode");
+        this.debugReportId = context.getParameter("debugReportId");
+        if (StringUtils.isBlank(this.runMode)) {
+            this.runMode =  ApiRunMode.RUN.name();
+        }
     }
 
     private ResponseAssertionResult getResponseAssertionResult(AssertionResult assertionResult) {

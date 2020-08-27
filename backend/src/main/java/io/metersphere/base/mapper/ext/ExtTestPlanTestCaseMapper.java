@@ -1,9 +1,8 @@
 package io.metersphere.base.mapper.ext;
 
-import io.metersphere.base.domain.Workspace;
-import io.metersphere.track.request.testplancase.QueryTestPlanCaseRequest;
 import io.metersphere.track.dto.TestCaseReportStatusResultDTO;
 import io.metersphere.track.dto.TestPlanCaseDTO;
+import io.metersphere.track.request.testplancase.QueryTestPlanCaseRequest;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
@@ -17,6 +16,8 @@ public interface ExtTestPlanTestCaseMapper {
     List<TestPlanCaseDTO> list(@Param("request") QueryTestPlanCaseRequest request);
 
     List<TestPlanCaseDTO> listByNode(@Param("request") QueryTestPlanCaseRequest request);
+
+    List<TestPlanCaseDTO> listByNodes(@Param("request") QueryTestPlanCaseRequest request);
 
     List<String> findRelateTestPlanId(@Param("userId") String userId, @Param("workspaceId") String workspaceId);
 

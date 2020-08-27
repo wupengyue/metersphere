@@ -77,10 +77,11 @@
               [2, { name: this.$t('test_track.plan_view.test_result'), id: 2 , type: 'system'}],
               [3, { name: this.$t('test_track.plan_view.result_distribution'), id: 3 ,type: 'system'}],
               [4, { name: this.$t('test_track.plan_view.failure_case'), id: 4 ,type: 'system'}],
-              [5, { name: this.$t('test_track.plan_view.custom_component'), id: 5 ,type: 'custom'}]
+              [5, { name: this.$t('test_track.plan_view.defect_list'), id: 5 ,type: 'system'}],
+              [6, { name: this.$t('test_track.plan_view.custom_component'), id:6,type: 'custom'}]
             ]
           ),
-          components: [5],
+          components: [6],
           previews: [],
           template: {},
           isReport: false
@@ -109,12 +110,12 @@
           this.template = {
             name: '',
             content: {
-              components: [1,2,3,4,5],
+              components: [1,2,3,4,5,6],
               customComponent: new Map()
             }
           };
           this.previews = [];
-          this.components = [5];
+          this.components = [6];
           if (id) {
             this.type = 'edit';
             this.getTemplateById(id);
@@ -144,6 +145,7 @@
               }
             }
           });
+
         },
         handleClose() {
           window.removeEventListener('popstate', this.goBack, false);
@@ -219,11 +221,15 @@
           });
         },
         handleSave() {
+          let pattern = new RegExp("[`~!@#$^&*=|{}':;',<>/?~！@#￥……&*（）——|{}【】‘；：”“'。，、？]");
           if (this.template.name == null || this.template.name == '') {
             this.$warning(this.$t('test_track.plan_view.input_template_name'));
             return;
           } else if (this.template.name.length > 64) {
             this.$warning(this.$t('commons.name') + this.$t('test_track.length_less_than') + '64');
+            return;
+          } else if (pattern.test(this.template.name)) {
+            this.$warning(this.$t('test_track.plan_view.template_special_characters'));
             return;
           }
           let param = {};

@@ -3,10 +3,19 @@ package io.metersphere.service;
 import com.alibaba.fastjson.JSON;
 import io.metersphere.base.domain.Schedule;
 import io.metersphere.base.domain.ScheduleExample;
+import io.metersphere.base.domain.User;
+import io.metersphere.base.domain.UserExample;
 import io.metersphere.base.mapper.ScheduleMapper;
+import io.metersphere.base.mapper.UserMapper;
+import io.metersphere.base.mapper.ext.ExtScheduleMapper;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.LogUtil;
+import io.metersphere.commons.utils.ServiceUtils;
 import io.metersphere.commons.utils.SessionUtils;
+import io.metersphere.controller.request.OrderRequest;
+import io.metersphere.controller.request.QueryScheduleRequest;
+import io.metersphere.dto.ScheduleDao;
+import io.metersphere.job.sechedule.ApiTestJob;
 import io.metersphere.job.sechedule.ScheduleManager;
 import org.apache.commons.lang3.StringUtils;
 import org.quartz.JobKey;
@@ -17,19 +26,28 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(rollbackFor = Exception.class)
 public class ScheduleService {
-    
+
     @Resource
     private ScheduleMapper scheduleMapper;
     @Resource
     private ScheduleManager scheduleManager;
+    @Resource
+    private ExtScheduleMapper extScheduleMapper;
+    @Resource
+    private UserMapper userMapper;
 
     public void addSchedule(Schedule schedule) {
         schedule.setId(UUID.randomUUID().toString());
+        schedule.setWorkspaceId(SessionUtils.getCurrentWorkspaceId());
+        schedule.setCreateTime(System.currentTimeMillis());
+        schedule.setUpdateTime(System.currentTimeMillis());
         scheduleMapper.insert(schedule);
     }
 
@@ -38,6 +56,7 @@ public class ScheduleService {
     }
 
     public int editSchedule(Schedule schedule) {
+        schedule.setUpdateTime(System.currentTimeMillis());
         return scheduleMapper.updateByPrimaryKeySelective(schedule);
     }
 
@@ -52,7 +71,16 @@ public class ScheduleService {
     }
 
     public int deleteSchedule(String scheduleId) {
+        Schedule schedule = scheduleMapper.selectByPrimaryKey(scheduleId);
+        removeJob(schedule.getResourceId());
         return scheduleMapper.deleteByPrimaryKey(scheduleId);
+    }
+
+    public int deleteByResourceId(String resourceId) {
+        ScheduleExample scheduleExample = new ScheduleExample();
+        scheduleExample.createCriteria().andResourceIdEqualTo(resourceId);
+        removeJob(resourceId);
+        return scheduleMapper.deleteByExample(scheduleExample);
     }
 
     public List<Schedule> listSchedule() {
@@ -93,6 +121,10 @@ public class ScheduleService {
         return schedule;
     }
 
+    public void removeJob(String resourceId) {
+        scheduleManager.removeJob(ApiTestJob.getJobKey(resourceId), ApiTestJob.getTriggerKey(resourceId));
+    }
+
     public void addOrUpdateCronJob(Schedule request, JobKey jobKey, TriggerKey triggerKey, Class clazz) {
         Boolean enable = request.getEnable();
         String cronExpression = request.getValue();
@@ -110,5 +142,24 @@ public class ScheduleService {
                 MSException.throwException("定时任务关闭异常");
             }
         }
+    }
+
+    public List<ScheduleDao> list(QueryScheduleRequest request) {
+        List<OrderRequest> orderList = ServiceUtils.getDefaultOrder(request.getOrders());
+        request.setOrders(orderList);
+        return extScheduleMapper.list(request);
+    }
+
+    public void build(Map<String, String> resourceNameMap, List<ScheduleDao> schedules) {
+        List<String> userIds = schedules.stream()
+                .map(Schedule::getUserId)
+                .collect(Collectors.toList());
+        UserExample example = new UserExample();
+        example.createCriteria().andIdIn(userIds);
+        Map<String, String> userMap = userMapper.selectByExample(example).stream().collect(Collectors.toMap(User::getId, User::getName));
+        schedules.forEach(schedule -> {
+            schedule.setResourceName(resourceNameMap.get(schedule.getResourceId()));
+            schedule.setUserName(userMap.get(schedule.getUserId()));
+        });
     }
 }
